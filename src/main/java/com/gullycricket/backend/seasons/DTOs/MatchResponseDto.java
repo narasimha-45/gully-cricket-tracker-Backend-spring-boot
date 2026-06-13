@@ -14,5 +14,6 @@ public record MatchResponseDto(
         Integer teamBWickets,
         String winner,
         Boolean superOver,
+        String wonBy,
         LocalDateTime completedAt
 ) {}

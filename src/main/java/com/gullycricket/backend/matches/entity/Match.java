@@ -39,6 +39,7 @@ public class Match {
     private Integer teamBWickets;
     private String winner;
     private Boolean superOver;
+    private String wonBy;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb")

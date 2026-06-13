@@ -55,23 +55,35 @@ public class MatchService {
         boolean hasSuperOver = dto.innings().stream()
                 .anyMatch(InningsDto::isSuperOver);
 
+        String teamAName = dto.teams().get("teamA").name();
+        String teamBName = dto.teams().get("teamB").name();
+        String winner = dto.result().winner();
+
+        InningsDto teamAInnings = regularInnings.get(0);
+        InningsDto teamBInnings = regularInnings.get(1);
+
+        InningsDto winnerInnings = winner.equalsIgnoreCase(teamAName) ? teamAInnings : teamBInnings;
+        InningsDto loserInnings  = winner.equalsIgnoreCase(teamAName) ? teamBInnings : teamAInnings;
+
+        String wonBy = calculateWonBy(winner, winnerInnings, loserInnings, hasSuperOver);
+
         Match match = new Match();
         match.setSeason(season);
         match.setMatchData(matchData);
         match.setStatus(MatchStatus.COMPLETED);
-        match.setTeamA(dto.teams().get("teamA").name());
-        match.setTeamB(dto.teams().get("teamB").name());
-        match.setTeamAScore(regularInnings.get(0).totalRuns());
-        match.setTeamAWickets(regularInnings.get(0).wickets());
-        match.setTeamBScore(regularInnings.get(1).totalRuns());
-        match.setTeamBWickets(regularInnings.get(1).wickets());
-        match.setWinner(dto.result().winner());
+        match.setTeamA(teamAName);
+        match.setTeamB(teamBName);
+        match.setTeamAScore(teamAInnings.totalRuns());
+        match.setTeamAWickets(teamAInnings.wickets());
+        match.setTeamBScore(teamBInnings.totalRuns());
+        match.setTeamBWickets(teamBInnings.wickets());
+        match.setWinner(winner);
         match.setSuperOver(hasSuperOver);
+        match.setWonBy(wonBy);
         match.setCompletedAt(LocalDateTime.now());
 
         Match savedMatch = matchRepository.save(match);
         log.info("Match created with id: {}", savedMatch.getId());
-
         return new MatchResponseDto(
                 savedMatch.getId(),
                 savedMatch.getSeason().getId(),
@@ -79,5 +91,28 @@ public class MatchService {
         );
     }
 
+    private String calculateWonBy(String winner,
+                                  InningsDto winnerInnings, InningsDto loserInnings,
+                                  boolean hasSuperOver) {
+        if (hasSuperOver) {
+            return winner + " won in Super Over";
+        }
+
+        int winnerRuns = winnerInnings.totalRuns();
+        int loserRuns = loserInnings.totalRuns();
+
+        if (winnerRuns > loserRuns) {
+            // Winner batted first — won by runs
+            int margin = winnerRuns - loserRuns;
+            return winner + " won by " + margin + " runs";
+        } else {
+            // Winner batted second — won by wickets
+            // Use actual wickets fallen, not 10 - wickets
+            int wicketsFallen = winnerInnings.wickets();
+            int totalPlayers = winnerInnings.battingStats().size();
+            int wicketsRemaining = totalPlayers - wicketsFallen;
+            return winner + " won by " + wicketsRemaining + " wickets";
+        }
+    }
 
 }

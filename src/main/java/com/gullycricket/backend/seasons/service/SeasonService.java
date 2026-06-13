@@ -66,6 +66,7 @@ public class SeasonService {
                 match.getTeamBWickets(),
                 match.getWinner(),
                 match.getSuperOver(),
+                match.getWonBy(),
                 match.getCompletedAt()
         );
     }
