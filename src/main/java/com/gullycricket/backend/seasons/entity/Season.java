@@ -7,6 +7,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.time.LocalDateTime;
+
 
 @Entity
 @Table(name = "seasons")
@@ -24,5 +26,7 @@ public class Season {
 
     @Column(nullable = false)
     private Integer matchesPlayed = 0;
+
+    private LocalDateTime createdAt;
 
 }
