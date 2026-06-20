@@ -2,6 +2,7 @@ package com.gullycricket.backend.seasons.controller;
 
 import com.gullycricket.backend.seasons.DTOs.CreateSeasonRequest;
 import com.gullycricket.backend.seasons.DTOs.MatchResponseDto;
+import com.gullycricket.backend.seasons.DTOs.SeasonSearchDto;
 import com.gullycricket.backend.seasons.entity.Season;
 import com.gullycricket.backend.seasons.service.SeasonService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -79,6 +80,20 @@ public class SeasonController {
         log.info("Getting all matches for season with ID {}", seasonId);
         List<MatchResponseDto> matches = seasonService.getALlMatchesBySeasonId(seasonId);
         return ResponseEntity.ok(matches);
+    }
+
+    @GetMapping("/search")
+    @Operation(
+            summary = "Get all seasons matching the query",
+            description = "Return all seasons matching the query"
+    )
+    @ApiResponse(
+            responseCode = "200",
+            description = "Successfully retrieved all seasons for the query"
+    )
+    public ResponseEntity<List<SeasonSearchDto>> searchSeason(@RequestParam String query){
+        log.info("Requested to search for seasons with query:{}",query);
+        return ResponseEntity.ok(seasonService.searchSeasons(query));
     }
 
 }

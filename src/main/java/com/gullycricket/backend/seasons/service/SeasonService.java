@@ -1,7 +1,9 @@
 package com.gullycricket.backend.seasons.service;
 
+import com.gullycricket.backend.matches.entity.Match;
 import com.gullycricket.backend.matches.respository.MatchRepository;
 import com.gullycricket.backend.seasons.DTOs.MatchResponseDto;
+import com.gullycricket.backend.seasons.DTOs.SeasonSearchDto;
 import com.gullycricket.backend.seasons.entity.Season;
 import com.gullycricket.backend.seasons.repository.SeasonRepository;
 import lombok.extern.slf4j.Slf4j;
@@ -50,13 +52,34 @@ public class SeasonService {
             log.info("Fetching all matches for season with ID {}", seasonId);
             List<MatchResponseDto> matches = matchRepository.findBySeason_Id(seasonId)
                     .stream()
-                    .map(this::MatchToResponseDtoMatch)
+                    .map(this::matchToResponseDtoMatch)
                     .toList();
             log.info("Retrieved {} matches for season with ID {}", matches.size(), seasonId);
             return matches;
     }
 
-    private MatchResponseDto MatchToResponseDtoMatch(com.gullycricket.backend.matches.entity.Match match) {
+    public List<SeasonSearchDto> searchSeasons(String query){
+        log.info("Searching for players like {}",query);
+
+        List<SeasonSearchDto> seasons = seasonJpaRepository.findBySeasonNameContainingIgnoreCase(query)
+                .stream()
+                .map(this::matchToSeasonSearchDto)
+                .toList();
+
+        log.info("List of seasons received: {}",seasons);
+
+        return seasons;
+    }
+
+    private SeasonSearchDto matchToSeasonSearchDto(Season season){
+        return new SeasonSearchDto(
+                season.getId(),
+                season.getSeasonName(),
+                season.getMatchesPlayed()
+        );
+    }
+
+    private MatchResponseDto matchToResponseDtoMatch(Match match) {
         return new MatchResponseDto(
                 match.getId(),
                 match.getSeason().getId(),
