@@ -1,6 +1,7 @@
 package com.gullycricket.backend.players.entity;
 
 import com.gullycricket.backend.matches.entity.Match;
+import com.gullycricket.backend.matches.entity.MatchFormat;
 import com.gullycricket.backend.seasons.entity.Season;
 import com.gullycricket.backend.teams.entity.Team;
 import jakarta.persistence.*;
@@ -13,7 +14,7 @@ import lombok.Setter;
 @Table(
         name = "player_matches",
         uniqueConstraints = {
-                @UniqueConstraint(columnNames = {"player_id", "match_id", "team_represented_id"})
+                @UniqueConstraint(columnNames = {"player_id", "match_id", "team_represented_id", "innings_number"})
         }
 )
 @Getter
@@ -45,6 +46,12 @@ public class PlayerMatch {
     @ManyToOne(optional = false)
     @JoinColumn(name = "opposition_team_id")
     private Team oppositionTeam;
+
+    @Enumerated(EnumType.STRING)
+    private MatchFormat matchType;        // LIMITED_OVERS or TEST_MATCH
+
+    @Column(nullable = false)
+    private Integer inningsNumber = 1;     // 1 = 1st innings round, 2 = 2nd innings round (Test only)
 
     // =========================
     // Match Context
@@ -109,6 +116,12 @@ public class PlayerMatch {
     private Integer maidensBowled = 0;
 
     @Column(nullable = false)
+    private Integer widesBowled = 0;
+
+    @Column(nullable = false)
+    private Integer noBallsBowled = 0;
+
+    @Column(nullable = false)
     private Integer bowledDismissals = 0;
 
     @Column(nullable = false)
@@ -121,7 +134,10 @@ public class PlayerMatch {
     private Integer stumpedDismissals = 0;
 
     @Column(nullable = false)
-    private Integer runOutDismissals = 0;
+    private Integer hitWicketDismissals = 0;
+
+    @Column(nullable = false)
+    private Integer specialWicketDismissals = 0;
 
     // =========================
     // Fielding

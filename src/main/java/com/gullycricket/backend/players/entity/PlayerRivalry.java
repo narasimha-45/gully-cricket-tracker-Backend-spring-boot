@@ -1,6 +1,7 @@
 package com.gullycricket.backend.players.entity;
 
 import com.gullycricket.backend.matches.entity.Match;
+import com.gullycricket.backend.matches.entity.MatchFormat;
 import com.gullycricket.backend.seasons.entity.Season;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
@@ -13,7 +14,7 @@ import lombok.Setter;
         name = "player_rivalries",
         uniqueConstraints = {
                 @UniqueConstraint(
-                        columnNames = {"batsman_id", "bowler_id", "match_id"}
+                        columnNames = {"batsman_id", "bowler_id", "match_id", "innings_number"}
                 )
         }
 )
@@ -43,7 +44,12 @@ public class PlayerRivalry {
     @JoinColumn(name = "season_id")
     private Season season;
 
-    // This particular match's head-to-head
+    @Enumerated(EnumType.STRING)
+    private MatchFormat matchType;
+
+    @Column(nullable = false)
+    private Integer inningsNumber = 1;
+
     @Column(nullable = false)
     private Integer runsScored = 0;
 

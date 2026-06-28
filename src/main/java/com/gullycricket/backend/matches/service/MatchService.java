@@ -25,6 +25,7 @@ public class MatchService {
     private final MatchRepository matchRepository;
     private final SeasonRepository seasonRepository;
     private final ObjectMapper objectMapper;
+    private final ProcessPlayerStatsService processPlayerStatsService;
 
     public MatchResponseDto getMatchById(String matchId) {
         log.info("Fetching match with id: {}", matchId);
@@ -75,15 +76,23 @@ public class MatchService {
         match.setTeamB(teamBName);
         match.setTeamAScore(teamAInnings.totalRuns());
         match.setTeamAWickets(teamAInnings.wickets());
+        match.setTeamABallsFaced(teamAInnings.balls());
         match.setTeamBScore(teamBInnings.totalRuns());
         match.setTeamBWickets(teamBInnings.wickets());
+        match.setTeamBBallsFaced(teamBInnings.balls());
         match.setWinner(winner);
+        match.setMatchFormat(dto.matchFormat());
+        match.setTotalOvers(dto.totalOvers());
         match.setSuperOver(hasSuperOver);
         match.setWonBy(wonBy);
         match.setCompletedAt(LocalDateTime.now());
 
+
         Match savedMatch = matchRepository.save(match);
+
         log.info("Match created with id: {}", savedMatch.getId());
+
+        processPlayerStatsService.processPlayerStats(savedMatch,dto);
         return new MatchResponseDto(
                 savedMatch.getId(),
                 savedMatch.getSeason().getId(),
@@ -110,9 +119,11 @@ public class MatchService {
             // Use actual wickets fallen, not 10 - wickets
             int wicketsFallen = winnerInnings.wickets();
             int totalPlayers = winnerInnings.battingStats().size();
-            int wicketsRemaining = totalPlayers - wicketsFallen;
+            int wicketsRemaining = totalPlayers - wicketsFallen - 1;
             return winner + " won by " + wicketsRemaining + " wickets";
         }
     }
+
+
 
 }

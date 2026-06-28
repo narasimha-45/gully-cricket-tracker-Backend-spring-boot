@@ -10,7 +10,7 @@ public record BallDto(
         String nonStriker,
         String bowler,
         int runs,
-        String type,
+        BallType type,
         @JsonProperty("isWicket") boolean isWicket,
         WicketDto wicket,         // null when isWicket = false
         long timestamp

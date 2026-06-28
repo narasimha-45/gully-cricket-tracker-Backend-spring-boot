@@ -2,6 +2,9 @@ package com.gullycricket.backend.teams.service;
 
 
 import com.gullycricket.backend.teams.DTOs.TeamSearchSuggestionDto;
+import com.gullycricket.backend.teams.entity.PlayerTeam;
+import com.gullycricket.backend.teams.entity.Team;
+import com.gullycricket.backend.teams.reposistory.PlayerTeamRepository;
 import com.gullycricket.backend.teams.reposistory.TeamRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,4 +34,13 @@ public class TeamService {
 
         return teams;
     }
+
+    public Team getTeamByName(String name){
+        return teamRepository.findByTeamName(name);
+    }
+
+    public Team saveTeam(Team team){
+        return teamRepository.save(team);
+    }
+
 }

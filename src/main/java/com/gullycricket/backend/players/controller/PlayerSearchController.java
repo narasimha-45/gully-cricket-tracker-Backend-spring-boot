@@ -1,13 +1,11 @@
 package com.gullycricket.backend.players.controller;
 
 import com.gullycricket.backend.players.DTOs.PlayerSearchSuggestionDto;
-import com.gullycricket.backend.players.repository.PlayerRepository;
-import com.gullycricket.backend.players.service.PlayerSearchService;
+import com.gullycricket.backend.players.service.PlayerService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.repository.query.Param;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -23,13 +21,13 @@ import java.util.List;
 public class PlayerSearchController {
 
     @Autowired
-    private PlayerSearchService playerSearchService;
+    private PlayerService playerService;
 
     @Operation(description = "Search for players based on a query string")
     @GetMapping
     public ResponseEntity<List<PlayerSearchSuggestionDto>> searchPlayers(@RequestParam String query) {
         log.info("Received search request for players with query: {}", query);
-        List<PlayerSearchSuggestionDto> response = playerSearchService.searchPlayers(query);
+        List<PlayerSearchSuggestionDto> response = playerService.searchPlayers(query);
         return ResponseEntity.ok(response);
     }
 }

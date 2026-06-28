@@ -1,7 +1,7 @@
 package com.gullycricket.backend.search.service;
 
 import com.gullycricket.backend.players.DTOs.PlayerSearchSuggestionDto;
-import com.gullycricket.backend.players.service.PlayerSearchService;
+import com.gullycricket.backend.players.service.PlayerService;
 import com.gullycricket.backend.search.DTOs.GlobalSearchResponseDto;
 import com.gullycricket.backend.seasons.DTOs.SeasonSearchDto;
 import com.gullycricket.backend.seasons.service.SeasonService;
@@ -16,7 +16,7 @@ import java.util.List;
 public class GlobalSearchService {
 
     @Autowired
-    private PlayerSearchService playerSearchService;
+    private PlayerService playerService;
 
     @Autowired
     private SeasonService seasonService;
@@ -25,7 +25,7 @@ public class GlobalSearchService {
     private TeamService teamService;
 
     public GlobalSearchResponseDto globalSearch(String query){
-        List<PlayerSearchSuggestionDto> players = playerSearchService.searchPlayers(query);
+        List<PlayerSearchSuggestionDto> players = playerService.searchPlayers(query);
         List<TeamSearchSuggestionDto> teams = teamService.searchTeam(query);
         List<SeasonSearchDto> seasons = seasonService.searchSeasons(query);
 

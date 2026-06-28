@@ -4,5 +4,7 @@ public record BowlingStatDto(
         int balls,
         int runs,
         int wickets,
-        int maidens
+        int maidens,
+        int noBallsBowled,
+        int widesBowled
 ) {}

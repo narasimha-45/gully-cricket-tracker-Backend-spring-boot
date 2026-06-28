@@ -1,5 +1,7 @@
 package com.gullycricket.backend.matches.DTOs;
 
+import com.gullycricket.backend.matches.entity.MatchFormat;
+
 import java.util.List;
 import java.util.Map;
 
@@ -9,7 +11,7 @@ public record MatchDataDto(
         TossDto toss,
         RulesDto rules,
         int totalOvers,
-        String matchType,
+        MatchFormat matchFormat,
         List<InningsDto> innings,
         ResultDto result
 ) {}

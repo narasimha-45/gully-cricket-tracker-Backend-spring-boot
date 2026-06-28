@@ -14,6 +14,7 @@ public record InningsDto(
         Map<String, BattingStatDto> battingStats,
         Map<String, BowlingStatDto> bowlingStats,
         ExtrasDto extras,
+        Map<String, DismissalDto> dismissals,
         List<BallDto> ballByBall,
         @JsonProperty("isSuperOver") boolean isSuperOver,
         boolean completed

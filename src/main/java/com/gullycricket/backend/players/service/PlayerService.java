@@ -5,15 +5,13 @@ import com.gullycricket.backend.players.entity.Player;
 import com.gullycricket.backend.players.repository.PlayerRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
-import org.springframework.web.bind.annotation.GetMapping;
 
 import java.util.List;
 
 @Slf4j
 @Service
-public class PlayerSearchService {
+public class PlayerService {
 
     @Autowired
     private PlayerRepository playerRepository;
@@ -32,9 +30,17 @@ public class PlayerSearchService {
         return players;
     }
 
+    public Player getPlayerByName(String name){
+        return playerRepository.findByName(name);
+    }
+
     private PlayerSearchSuggestionDto mapToPlayerSearchSuggestionDto(Player player){
         return new PlayerSearchSuggestionDto(
                 player.getId(), player.getName(),player.getPlayerMatches().size()
         );
+    }
+
+    public Player savePlayer(Player player){
+        return playerRepository.save(player);
     }
 }
