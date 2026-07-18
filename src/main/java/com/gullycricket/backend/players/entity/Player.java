@@ -27,14 +27,6 @@ public class Player {
     @Column(nullable = false, unique = true)
     private String name;
 
-    @ManyToMany
-    @JoinTable(
-            name = "player_season",
-            joinColumns = @JoinColumn(name = "player_id"),
-            inverseJoinColumns = @JoinColumn(name = "season_id")
-    )
-    private Set<Season> seasonsPlayed = new HashSet<>();
-
     @OneToMany(mappedBy = "player")
     private List<PlayerMatch> playerMatches = new ArrayList<>();
 }

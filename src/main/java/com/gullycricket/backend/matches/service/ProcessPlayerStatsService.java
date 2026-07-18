@@ -8,6 +8,8 @@ import com.gullycricket.backend.players.repository.PlayerPartnershipsRepository;
 import com.gullycricket.backend.players.repository.PlayerRivalryRepository;
 import com.gullycricket.backend.players.service.PlayerService;
 import com.gullycricket.backend.seasons.entity.Season;
+import com.gullycricket.backend.seasons.entity.SeasonPlayer;
+import com.gullycricket.backend.seasons.repository.SeasonPlayerRepository;
 import com.gullycricket.backend.seasons.service.SeasonService;
 import com.gullycricket.backend.teams.entity.PlayerTeam;
 import com.gullycricket.backend.teams.entity.Team;
@@ -19,6 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -29,139 +32,84 @@ public class ProcessPlayerStatsService {
     private final TeamService teamService;
     private final PlayerService playerService;
     private final PlayerTeamService playerTeamService;
-
+    private final SeasonPlayerRepository seasonPlayerRepository;
     private final PlayerMatchRepository playerMatchRepository;
     private final PlayerPartnershipsRepository playerPartnershipsRepository;
     private final PlayerRivalryRepository playerRivalryRepository;
     private final PlayerTeamRepository playerTeamRepository;
 
-    private static ProcessingContext getProcessingContext(Match match, MatchDataDto matchData, Season season) {
+    private ProcessingContext getProcessingContext(Match match, MatchDataDto matchData, Season season) {
         String winningTeam = matchData.result() != null ? matchData.result().winner() : null;
-
         String playerOfTheMatch = matchData.result() != null ? matchData.result().manOfTheMatch() : null;
 
-        return new ProcessingContext(match, season, matchData.matchFormat(), winningTeam, playerOfTheMatch, matchData.rules(),
+        // Fetch only the players in this match — ONE targeted query
+        List<String> allPlayerNames = new ArrayList<>();
+        allPlayerNames.addAll(matchData.teams().get("teamA").players());
+        allPlayerNames.addAll(matchData.teams().get("teamB").players());
 
-                new HashMap<>(), new HashMap<>(), new HashMap<>(),
+        Map<String, Player> playerMap = playerService.getPlayersByNameIn(allPlayerNames).stream().collect(Collectors.toMap(Player::getName, p -> p));
 
-                new HashMap<>(), new HashMap<>(), new HashMap<>(),
+        // Prefetch which players are already in this season — ONE query
+        Set<String> seasonPlayerIds = seasonPlayerRepository.findPlayerIdsBySeasonId(season.getId());
 
-                new ArrayList<>());
+        return new ProcessingContext(match, season, matchData.matchFormat(), winningTeam, playerOfTheMatch, matchData.rules(), playerMap, new HashMap<>(), new HashMap<>(), seasonPlayerIds, new HashMap<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
     }
 
     public void processPlayerStats(Match match, MatchDataDto matchData) {
-
         Season season = seasonService.getSeasonById(matchData.seasonId());
-
         ProcessingContext ctx = getProcessingContext(match, matchData, season);
-
         processTeams(ctx, matchData.teams());
         processBattingStats(ctx, matchData.innings());
         processBowlingStats(ctx, matchData.innings());
         processFieldingStats(ctx, matchData.innings());
         processPartnershipsAndRivalries(ctx, matchData.innings());
-
         saveAllProcessedStats(ctx);
     }
 
-    public boolean existsByPlayerAndTeamAndSeason(
-            Player player,
-            Team team,
-            Season season
-    ) {
-        return playerTeamRepository
-                .existsByPlayerAndTeamAndSeason(
-                        player,
-                        team,
-                        season
-                );
+    private void processTeams(ProcessingContext ctx, Map<String, TeamDto> teams) {
+        processSingleTeam(ctx, teams.get("teamA"));
+        processSingleTeam(ctx, teams.get("teamB"));
     }
 
-    private void processTeams(
-            ProcessingContext ctx,
-            Map<String, TeamDto> teams
-    ) {
+    private void processSingleTeam(ProcessingContext ctx, TeamDto teamDto) {
+        String teamName = teamDto.name().toLowerCase();
 
-        processSingleTeam(
-                ctx,
-                teams.get("teamA")
-        );
-
-        processSingleTeam(
-                ctx,
-                teams.get("teamB")
-        );
-
-        playerTeamService.saveListOfPlayerTeams(
-                ctx.playerTeams()
-        );
-    }
-
-    private void processSingleTeam(
-            ProcessingContext ctx,
-            TeamDto teamDto
-    ) {
-
-        String teamName =
-                teamDto.name().toLowerCase();
-
-        Team team =
-                teamService.getTeamByName(teamName);
-
+        Team team = teamService.getTeamByName(teamName);
         if (team == null) {
             team = new Team();
             team.setTeamName(teamName);
         }
-
-        if (!team.getSeasonsPlayed().contains(ctx.season())) {
-            team.getSeasonsPlayed().add(ctx.season());
-        }
-
+        team.getSeasonsPlayed().add(ctx.season());
         team = teamService.saveTeam(team);
-
         ctx.teamMap().put(teamName, team);
 
-        for (String playerName : teamDto.players()) {
+        // ONE query — existing PlayerTeam rows for this team+season
+        Set<String> existingPlayerNames = playerTeamService.findExistingPlayerNamesByTeamAndSeason(team, ctx.season());
 
-            Player player =
-                    playerService.getPlayerByName(playerName);
+        for (String playerName : teamDto.players()) {
+            Player player = ctx.playerMap().get(playerName);
 
             if (player == null) {
                 player = new Player();
                 player.setName(playerName);
             }
 
-            if (!player.getSeasonsPlayed().contains(ctx.season())) {
-                player.getSeasonsPlayed().add(ctx.season());
-            }
-
-            player = playerService.savePlayer(player);
-
             ctx.playerMap().put(playerName, player);
             ctx.playerTeamMap().put(playerName, team);
 
-            if (!playerTeamService.existsByPlayerAndTeamAndSeason(
-                    player,
-                    team,
-                    ctx.season()
-            )) {
-
-                PlayerTeam playerTeam =
-                        new PlayerTeam();
-
+            if (!existingPlayerNames.contains(playerName)) {
+                PlayerTeam playerTeam = new PlayerTeam();
                 playerTeam.setPlayer(player);
                 playerTeam.setTeam(team);
                 playerTeam.setSeason(ctx.season());
                 playerTeam.setActive(true);
-
                 ctx.playerTeams().add(playerTeam);
             }
         }
     }
+
     private void processBattingStats(ProcessingContext ctx, List<InningsDto> innings) {
-
         for (int i = 0; i < innings.size(); i++) {
-
             InningsDto inning = innings.get(i);
 
             if (inning.isSuperOver()) {
@@ -169,26 +117,19 @@ public class ProcessPlayerStatsService {
             }
 
             int inningsNumber = (i / 2) + 1;
-
             Team battingTeam = ctx.teamMap().get(inning.battingTeam());
-            log.info("Batting team: {}",battingTeam);
             Team bowlingTeam = ctx.teamMap().get(inning.bowlingTeam());
-            log.info("bowling team: {}",bowlingTeam);
-
             boolean battingFirst = i % 2 == 0;
-
             int battingPosition = 1;
 
             for (Map.Entry<String, BattingStatDto> entry : inning.battingStats().entrySet()) {
-
                 String player = entry.getKey();
                 BattingStatDto stat = entry.getValue();
 
-                PlayerMatch playerMatch = getOrCreatePlayerMatch(ctx,player, battingTeam, bowlingTeam, inningsNumber, battingFirst);
+                PlayerMatch playerMatch = getOrCreatePlayerMatch(ctx, player, battingTeam, bowlingTeam, inningsNumber, battingFirst);
 
                 playerMatch.setBatted(true);
                 playerMatch.setBattingPosition(battingPosition++);
-
                 playerMatch.setRunsScored(stat.runs());
                 playerMatch.setBallsFaced(stat.balls());
                 playerMatch.setFoursHit(stat.fours());
@@ -203,9 +144,7 @@ public class ProcessPlayerStatsService {
     }
 
     private void processBowlingStats(ProcessingContext ctx, List<InningsDto> innings) {
-
         for (int i = 0; i < innings.size(); i++) {
-
             InningsDto inning = innings.get(i);
 
             if (inning.isSuperOver()) {
@@ -213,41 +152,30 @@ public class ProcessPlayerStatsService {
             }
 
             int inningsNumber = (i / 2) + 1;
-
             Team battingTeam = ctx.teamMap().get(inning.battingTeam());
             Team bowlingTeam = ctx.teamMap().get(inning.bowlingTeam());
-
             boolean battingFirst = i % 2 == 0;
 
             for (Map.Entry<String, BowlingStatDto> entry : inning.bowlingStats().entrySet()) {
-
                 String player = entry.getKey();
                 BowlingStatDto stat = entry.getValue();
 
                 PlayerMatch playerMatch = getOrCreatePlayerMatch(ctx, player, bowlingTeam, battingTeam, inningsNumber, !battingFirst);
 
                 playerMatch.setBowled(true);
-
                 playerMatch.setWicketsTaken(stat.wickets());
                 playerMatch.setBallsBowled(stat.balls());
-
                 playerMatch.setRunsConceded(stat.runs());
-
                 playerMatch.setMaidensBowled(stat.maidens());
-
                 playerMatch.setNoBallsBowled(stat.noBallsBowled());
-
                 playerMatch.setWidesBowled(stat.widesBowled());
             }
         }
     }
 
     private void processFieldingStats(ProcessingContext ctx, List<InningsDto> innings) {
-
         for (int i = 0; i < innings.size(); i++) {
-
             int inningsNumber = (i / 2) + 1;
-
             InningsDto inning = innings.get(i);
 
             if (inning.isSuperOver()) {
@@ -260,60 +188,34 @@ public class ProcessPlayerStatsService {
             Map<String, DismissalDto> dismissals = inning.dismissals();
 
             for (DismissalDto dismissal : dismissals.values()) {
-
                 String bowler = dismissal.bowler();
                 String fielder = dismissal.fielder();
-
                 DismissalType dismissalType = dismissal.type();
 
-                // =========================
-                // Bowler Stats
-                // =========================
-
                 if (bowler != null && !bowler.isBlank()) {
-
                     PlayerMatch bowlerStats = getOrCreatePlayerMatch(ctx, bowler, bowlingTeam, battingTeam, inningsNumber, false);
-
                     bowlerStats.setBowled(true);
 
                     switch (dismissalType) {
-
                         case BOWLED -> bowlerStats.setBowledDismissals(bowlerStats.getBowledDismissals() + 1);
-
                         case CAUGHT -> bowlerStats.setCaughtDismissals(bowlerStats.getCaughtDismissals() + 1);
-
                         case LBW -> bowlerStats.setLbwDismissals(bowlerStats.getLbwDismissals() + 1);
-
                         case STUMPED -> bowlerStats.setStumpedDismissals(bowlerStats.getStumpedDismissals() + 1);
-
                         case HIT_WICKET -> bowlerStats.setHitWicketDismissals(bowlerStats.getHitWicketDismissals() + 1);
-
                         case RUN_OUT -> {
-                            // Bowler gets no wicket
                         }
-
                         default -> bowlerStats.setSpecialWicketDismissals(bowlerStats.getSpecialWicketDismissals() + 1);
                     }
                 }
 
-                // =========================
-                // Fielder Stats
-                // =========================
-
                 if (fielder != null && !fielder.isBlank()) {
-
                     PlayerMatch fielderStats = getOrCreatePlayerMatch(ctx, fielder, bowlingTeam, battingTeam, inningsNumber, false);
 
                     switch (dismissalType) {
-
                         case CAUGHT -> fielderStats.setCatchesTaken(fielderStats.getCatchesTaken() + 1);
-
                         case RUN_OUT -> fielderStats.setRunOuts(fielderStats.getRunOuts() + 1);
-
                         case STUMPED -> fielderStats.setStumpings(fielderStats.getStumpings() + 1);
-
                         default -> {
-                            // no fielding stat
                         }
                     }
                 }
@@ -322,7 +224,6 @@ public class ProcessPlayerStatsService {
     }
 
     private void processPartnershipsAndRivalries(ProcessingContext ctx, List<InningsDto> innings) {
-
         for (int i = 0; i < innings.size(); i++) {
             InningsDto inning = innings.get(i);
 
@@ -331,7 +232,6 @@ public class ProcessPlayerStatsService {
             }
 
             List<BallDto> ballByBall = inning.ballByBall();
-
             Team battingTeam = ctx.teamMap().get(inning.battingTeam());
             int inningsNumber = i / 2 + 1;
             Player player1 = null;
@@ -414,13 +314,10 @@ public class ProcessPlayerStatsService {
                 }
 
                 boolean isBallCount = ballType != BallType.WIDE;
-
                 int runs = ballDto.runs();
-
                 int wideExtraPenalty = (ballType == BallType.WIDE && ctx.rules().wide().extraRun()) ? 1 : 0;
                 int noBallExtraPenalty = (ballType == BallType.NO_BALL && ctx.rules().noBall().extraRun()) ? 1 : 0;
                 int extraPenaltyRun = wideExtraPenalty + noBallExtraPenalty;
-
                 int batsmanRuns = runs - extraPenaltyRun;
 
                 if (isBallCount) {
@@ -498,38 +395,44 @@ public class ProcessPlayerStatsService {
     }
 
     private void saveAllProcessedStats(ProcessingContext ctx) {
+        // 1. Save players first — assigns IDs to genuinely new players
+        List<Player> savedPlayers = playerService.saveAllPlayers(ctx.playerMap().values().stream().toList());
+
+        // 2. Build SeasonPlayer rows — only for players not already in this season
+        List<SeasonPlayer> newSeasonPlayers = savedPlayers.stream().filter(p -> !ctx.seasonPlayerIds().contains(p.getId())).map(p -> {
+            SeasonPlayer sp = new SeasonPlayer();
+            sp.setPlayer(p);
+            sp.setSeason(ctx.season());
+            return sp;
+        }).toList();
+
+        seasonPlayerRepository.saveAll(newSeasonPlayers);
+
+        playerTeamService.saveListOfPlayerTeams(ctx.playerTeams());
+
+        // 3. Save all stat rows
         playerMatchRepository.saveAll(ctx.playerMatchMap().values());
         playerPartnershipsRepository.saveAll(ctx.partnershipMap().values());
         playerRivalryRepository.saveAll(ctx.rivalryMap().values());
     }
 
     private PlayerMatch getOrCreatePlayerMatch(ProcessingContext ctx, String playerName, Team teamRepresented, Team oppositionTeam, int inningsNumber, boolean battingFirst) {
-
         String key = playerName + "_" + teamRepresented.getId() + "_" + inningsNumber;
-
         PlayerMatch playerMatch = ctx.playerMatchMap().get(key);
 
         if (playerMatch == null) {
-
             playerMatch = new PlayerMatch();
-
             playerMatch.setPlayer(ctx.playerMap().get(playerName));
             playerMatch.setMatch(ctx.match());
             playerMatch.setSeason(ctx.season());
-
             playerMatch.setTeamRepresented(teamRepresented);
             playerMatch.setOppositionTeam(oppositionTeam);
-
             playerMatch.setMatchType(ctx.matchFormat());
             playerMatch.setInningsNumber(inningsNumber);
-
             playerMatch.setMatchWon(ctx.winningTeam().equals(teamRepresented.getTeamName()));
-
             playerMatch.setPlayerOfTheMatch(Objects.equals(ctx.playerOfTheMatch(), playerName));
-
             playerMatch.setBattingFirst(battingFirst);
             playerMatch.setBowlingFirst(!battingFirst);
-
             ctx.playerMatchMap().put(key, playerMatch);
         }
 

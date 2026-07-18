@@ -13,6 +13,7 @@ import com.gullycricket.backend.teams.entity.Team;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public record ProcessingContext(
         Match match,
@@ -21,14 +22,12 @@ public record ProcessingContext(
         String winningTeam,
         String playerOfTheMatch,
         RulesDto rules,
-
         Map<String, Player> playerMap,
         Map<String, Team> teamMap,
         Map<String, Team> playerTeamMap,
-
+        Set<String> seasonPlayerIds,          // player IDs already in this season — prefetched
         Map<String, PlayerMatch> playerMatchMap,
         Map<String, PlayerPartnerships> partnershipMap,
         Map<String, PlayerRivalry> rivalryMap,
-
         List<PlayerTeam> playerTeams
 ) {}

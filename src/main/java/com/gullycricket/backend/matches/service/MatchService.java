@@ -49,6 +49,8 @@ public class MatchService {
         Season season = seasonRepository.findById(dto.seasonId())
                 .orElseThrow(() -> new RuntimeException("Season not found: " + dto.seasonId()));
 
+        season.setMatchesPlayed(season.getMatchesPlayed() + 1);
+
         List<InningsDto> regularInnings = dto.innings().stream()
                 .filter(i -> !i.isSuperOver())
                 .toList();

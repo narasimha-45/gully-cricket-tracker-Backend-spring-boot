@@ -43,4 +43,16 @@ public class PlayerService {
     public Player savePlayer(Player player){
         return playerRepository.save(player);
     }
+
+    public List<Player> getAllPlayers(){
+        return playerRepository.findAll();
+    }
+
+    public List<Player> getPlayersByNameIn(List<String> names) {
+        return playerRepository.findByNameIn(names);
+    }
+
+    public List<Player> saveAllPlayers(List<Player> players){
+        return playerRepository.saveAll(players);
+    }
 }

@@ -5,11 +5,15 @@ import com.gullycricket.backend.seasons.entity.Season;
 import com.gullycricket.backend.teams.entity.PlayerTeam;
 import com.gullycricket.backend.teams.entity.Team;
 import com.gullycricket.backend.teams.reposistory.PlayerTeamRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class PlayerTeamService {
 
@@ -20,20 +24,19 @@ public class PlayerTeamService {
         return playerTeamRepository.save(playerTeam);
     }
 
-    public boolean existsByPlayerAndTeamAndSeason(
-            Player player,
-            Team team,
-            Season season
-    ) {
-        return playerTeamRepository
-                .existsByPlayerAndTeamAndSeason(
-                        player,
-                        team,
-                        season
-                );
+    public List<PlayerTeam> saveListOfPlayerTeams(List<PlayerTeam> playerTeams) {
+        log.info("Saving {} player teams", playerTeams.size());
+        return playerTeamRepository.saveAll(playerTeams);
     }
 
-    public List<PlayerTeam> saveListOfPlayerTeams(List<PlayerTeam> playerTeams){
-        return playerTeamRepository.saveAll(playerTeams);
+    public boolean existsByPlayerAndTeamAndSeason(Player player, Team team, Season season) {
+        return playerTeamRepository.existsByPlayerAndTeamAndSeason(player, team, season);
+    }
+
+    public Set<String> findExistingPlayerNamesByTeamAndSeason(Team team, Season season) {
+        return playerTeamRepository.findByTeamAndSeason(team, season)
+                .stream()
+                .map(pt -> pt.getPlayer().getName())
+                .collect(Collectors.toSet());
     }
 }
