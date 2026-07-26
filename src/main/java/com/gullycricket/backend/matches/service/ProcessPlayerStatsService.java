@@ -52,7 +52,7 @@ public class ProcessPlayerStatsService {
         // Prefetch which players are already in this season — ONE query
         Set<String> seasonPlayerIds = seasonPlayerRepository.findPlayerIdsBySeasonId(season.getId());
 
-        return new ProcessingContext(match, season, matchData.matchFormat(), winningTeam, playerOfTheMatch, matchData.rules(), playerMap, new HashMap<>(), new HashMap<>(), seasonPlayerIds, new HashMap<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
+        return new ProcessingContext(match, season, matchData.matchType(), winningTeam, playerOfTheMatch, matchData.rules(), playerMap, new HashMap<>(), new HashMap<>(), seasonPlayerIds, new HashMap<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
     }
 
     public void processPlayerStats(Match match, MatchDataDto matchData) {
@@ -129,7 +129,7 @@ public class ProcessPlayerStatsService {
                 PlayerMatch playerMatch = getOrCreatePlayerMatch(ctx, player, battingTeam, bowlingTeam, inningsNumber, battingFirst);
 
                 playerMatch.setBatted(true);
-                playerMatch.setBattingPosition(battingPosition++);
+                playerMatch.setBattingPosition(stat.battingPosition());
                 playerMatch.setRunsScored(stat.runs());
                 playerMatch.setBallsFaced(stat.balls());
                 playerMatch.setFoursHit(stat.fours());
@@ -286,7 +286,7 @@ public class ProcessPlayerStatsService {
                     playerPartnerships.setPlayer1(player1);
                     playerPartnerships.setPlayer2(player2);
                     playerPartnerships.setInningsNumber(inningsNumber);
-                    playerPartnerships.setMatchType(ctx.matchFormat());
+                    playerPartnerships.setMatchType(ctx.matchType());
                     playerPartnerships.setSeason(ctx.season());
                     playerPartnerships.setMatch(ctx.match());
                     playerPartnerships.setTeamRepresented(battingTeam);
@@ -307,7 +307,7 @@ public class ProcessPlayerStatsService {
                     playerRivalry.setBatsman(striker);
                     playerRivalry.setBowler(bowler);
                     playerRivalry.setInningsNumber(inningsNumber);
-                    playerRivalry.setMatchType(ctx.matchFormat());
+                    playerRivalry.setMatchType(ctx.matchType());
                     playerRivalry.setMatch(ctx.match());
                     playerRivalry.setSeason(ctx.season());
                     ctx.rivalryMap().put(batterBowlerKey, playerRivalry);
@@ -321,6 +321,31 @@ public class ProcessPlayerStatsService {
                 int batsmanRuns = runs - extraPenaltyRun;
 
                 if (isBallCount) {
+
+                    // dot balls are counted for both the batter and the bowler, so we need to update their stats accordingly
+                    PlayerMatch batterMatch = getOrCreatePlayerMatch(
+                            ctx,
+                            striker.getName(),
+                            battingTeam,
+                            ctx.teamMap().get(inning.bowlingTeam()),
+                            inningsNumber,
+                            i % 2 == 0
+                    );
+
+                    PlayerMatch bowlerMatch = getOrCreatePlayerMatch(
+                            ctx,
+                            bowler.getName(),
+                            ctx.teamMap().get(inning.bowlingTeam()),
+                            battingTeam,
+                            inningsNumber,
+                            !(i % 2 == 0)
+                    );
+
+                    if (batsmanRuns == 0) {
+                        batterMatch.setDotBallsPlayed(batterMatch.getDotBallsPlayed() + 1);
+                        bowlerMatch.setDotBallsBowled(bowlerMatch.getDotBallsBowled() + 1);
+                    }
+
                     playerPartnerships.setBallsFaced(playerPartnerships.getBallsFaced() + 1);
                     if (Objects.equals(striker, player1)) {
                         playerPartnerships.setPlayer1BallsFaced(playerPartnerships.getPlayer1BallsFaced() + 1);
@@ -427,7 +452,7 @@ public class ProcessPlayerStatsService {
             playerMatch.setSeason(ctx.season());
             playerMatch.setTeamRepresented(teamRepresented);
             playerMatch.setOppositionTeam(oppositionTeam);
-            playerMatch.setMatchType(ctx.matchFormat());
+            playerMatch.setMatchType(ctx.matchType());
             playerMatch.setInningsNumber(inningsNumber);
             playerMatch.setMatchWon(ctx.winningTeam().equals(teamRepresented.getTeamName()));
             playerMatch.setPlayerOfTheMatch(Objects.equals(ctx.playerOfTheMatch(), playerName));

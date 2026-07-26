@@ -2,6 +2,7 @@ package com.gullycricket.backend.teams.service;
 
 
 import com.gullycricket.backend.teams.DTOs.TeamSearchSuggestionDto;
+import com.gullycricket.backend.teams.DTOs.TeamSeasonPlayerDto;
 import com.gullycricket.backend.teams.entity.PlayerTeam;
 import com.gullycricket.backend.teams.entity.Team;
 import com.gullycricket.backend.teams.reposistory.PlayerTeamRepository;
@@ -18,6 +19,9 @@ public class TeamService {
 
     @Autowired
     private TeamRepository teamRepository;
+
+    @Autowired
+    private PlayerTeamService playerTeamService;
 
     public List<TeamSearchSuggestionDto> searchTeam(String query){
         log.info("searching for the teams having {}",query);

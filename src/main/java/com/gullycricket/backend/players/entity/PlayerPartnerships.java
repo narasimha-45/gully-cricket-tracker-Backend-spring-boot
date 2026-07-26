@@ -1,7 +1,7 @@
     package com.gullycricket.backend.players.entity;
 
     import com.gullycricket.backend.matches.entity.Match;
-    import com.gullycricket.backend.matches.entity.MatchFormat;
+    import com.gullycricket.backend.matches.entity.MatchType;
     import com.gullycricket.backend.seasons.entity.Season;
     import com.gullycricket.backend.teams.entity.Team;
     import jakarta.persistence.*;
@@ -50,7 +50,7 @@
         private Team teamRepresented;
 
         @Enumerated(EnumType.STRING)
-        private MatchFormat matchType;          // LIMITED_OVERS or TEST_MATCH
+        private MatchType matchType;          // LIMITED_OVERS or TEST_MATCH
 
         @Column(nullable = false)
         private Integer inningsNumber = 1;       // 1 or 2 — which round this partnership happened in

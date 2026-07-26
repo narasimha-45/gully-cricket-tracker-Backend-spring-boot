@@ -2,7 +2,7 @@ package com.gullycricket.backend.matches.service;
 
 import com.gullycricket.backend.matches.DTOs.RulesDto;
 import com.gullycricket.backend.matches.entity.Match;
-import com.gullycricket.backend.matches.entity.MatchFormat;
+import com.gullycricket.backend.matches.entity.MatchType;
 import com.gullycricket.backend.players.entity.Player;
 import com.gullycricket.backend.players.entity.PlayerMatch;
 import com.gullycricket.backend.players.entity.PlayerPartnerships;
@@ -18,7 +18,7 @@ import java.util.Set;
 public record ProcessingContext(
         Match match,
         Season season,
-        MatchFormat matchFormat,
+        MatchType matchType,
         String winningTeam,
         String playerOfTheMatch,
         RulesDto rules,

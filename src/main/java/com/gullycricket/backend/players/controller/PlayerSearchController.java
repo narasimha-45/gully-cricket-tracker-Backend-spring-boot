@@ -16,7 +16,7 @@ import java.util.List;
 
 @Slf4j
 @RestController
-@RequestMapping("/players/search")
+@RequestMapping("/players")
 @Tag(name = "Player Search API", description = "Operations related to searching players")
 public class PlayerSearchController {
 
@@ -24,10 +24,17 @@ public class PlayerSearchController {
     private PlayerService playerService;
 
     @Operation(description = "Search for players based on a query string")
-    @GetMapping
+    @GetMapping("/search")
     public ResponseEntity<List<PlayerSearchSuggestionDto>> searchPlayers(@RequestParam String query) {
         log.info("Received search request for players with query: {}", query);
         List<PlayerSearchSuggestionDto> response = playerService.searchPlayers(query);
         return ResponseEntity.ok(response);
     }
+
+//    @GetMapping("/profile")
+//    public ResponseEntity<PlayerProfileDto> getPlayerProfile(@RequestParam String id) {
+//        log.info("Received request for player profile with ID: {}", id);
+//        PlayerProfileDto response = playerService.getPlayerProfile(id);
+//        return ResponseEntity.ok(response);
+//    }
 }

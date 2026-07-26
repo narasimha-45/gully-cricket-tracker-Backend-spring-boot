@@ -1,6 +1,8 @@
 package com.gullycricket.backend.teams.controller;
 
 import com.gullycricket.backend.teams.DTOs.TeamSearchSuggestionDto;
+import com.gullycricket.backend.teams.DTOs.TeamSeasonPlayerDto;
+import com.gullycricket.backend.teams.service.PlayerTeamService;
 import com.gullycricket.backend.teams.service.TeamService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -24,6 +26,9 @@ public class TeamController {
     @Autowired
     private TeamService teamService;
 
+    @Autowired
+    private PlayerTeamService playerTeamService;
+
     @GetMapping("/search")
     @Operation(
             summary = "Get all teams matching the query",
@@ -36,5 +41,20 @@ public class TeamController {
     public ResponseEntity<List<TeamSearchSuggestionDto>> searchTeams(@RequestParam String query){
         log.info("received query to search teams: {}",query);
         return ResponseEntity.ok(teamService.searchTeam(query));
+    }
+
+    @GetMapping("/season-player")
+    @Operation(
+            summary = "Get team season player",
+            description = "Return the player information for a team in a specific season"
+    )
+    @ApiResponse(
+            responseCode = "200",
+            description = "Successfully retrieved team season player"
+    )
+    public ResponseEntity<List<TeamSeasonPlayerDto>> getTeamSeasonPlayer(@RequestParam String teamId, @RequestParam String seasonId) {
+        log.info("received request to get team season player for team: {} and season: {}", teamId, seasonId);
+        List<TeamSeasonPlayerDto> teamSeasonPlayerDtos = playerTeamService.getPlayersByTeamAndSeason(teamId,seasonId);
+        return ResponseEntity.ok(teamSeasonPlayerDtos);
     }
 }

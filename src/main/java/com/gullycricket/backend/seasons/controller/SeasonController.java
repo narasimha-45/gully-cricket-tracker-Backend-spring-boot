@@ -67,7 +67,7 @@ public class SeasonController {
         return ResponseEntity.status(201).body(season);
     }
 
-    @GetMapping("/matches")
+    @GetMapping("/matches/{seasonId}")
     @Operation(
             summary = "Get all matches for a season",
             description = "Returns all matches for a specific season"
@@ -76,7 +76,7 @@ public class SeasonController {
             responseCode = "200",
             description = "Successfully retrieved all matches for the season"
     )
-    public ResponseEntity<List<MatchResponseDto>> getMatchesForSeason(@RequestParam String seasonId) {
+    public ResponseEntity<List<MatchResponseDto>> getMatchesForSeason(@PathVariable String seasonId) {
         log.info("Getting all matches for season with ID {}", seasonId);
         List<MatchResponseDto> matches = seasonService.getALlMatchesBySeasonId(seasonId);
         return ResponseEntity.ok(matches);

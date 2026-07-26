@@ -1,7 +1,7 @@
 package com.gullycricket.backend.players.entity;
 
 import com.gullycricket.backend.matches.entity.Match;
-import com.gullycricket.backend.matches.entity.MatchFormat;
+import com.gullycricket.backend.matches.entity.MatchType;
 import com.gullycricket.backend.seasons.entity.Season;
 import com.gullycricket.backend.teams.entity.Team;
 import jakarta.persistence.*;
@@ -48,7 +48,7 @@ public class PlayerMatch {
     private Team oppositionTeam;
 
     @Enumerated(EnumType.STRING)
-    private MatchFormat matchType;        // LIMITED_OVERS or TEST_MATCH
+    private MatchType matchType;        // LIMITED_OVERS or TEST_MATCH
 
     @Column(nullable = false)
     private Integer inningsNumber = 1;     // 1 = 1st innings round, 2 = 2nd innings round (Test only)
@@ -89,6 +89,9 @@ public class PlayerMatch {
 
     @Column(nullable = false)
     private boolean out = false;
+
+    @Column(nullable = false)
+    private Integer dotBallsPlayed = 0;
 
     @Enumerated(EnumType.STRING)
     private DismissalType dismissalType;
@@ -138,6 +141,9 @@ public class PlayerMatch {
 
     @Column(nullable = false)
     private Integer specialWicketDismissals = 0;
+
+    @Column(nullable = false)
+    private Integer dotBallsBowled = 0;
 
     // =========================
     // Fielding

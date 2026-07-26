@@ -2,6 +2,7 @@ package com.gullycricket.backend.matches.entity;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.gullycricket.backend.seasons.entity.Season;
+import com.gullycricket.backend.teams.entity.Team;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -36,13 +37,15 @@ public class Match {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private MatchFormat matchFormat;
+    private MatchType matchType;
 
-    @Column(nullable = false)
-    private String teamA;
+    @ManyToOne(optional = false)
+    @JoinColumn(name = "team_a_id")
+    private Team teamA;
 
-    @Column(nullable = false)
-    private String teamB;
+    @ManyToOne(optional = false)
+    @JoinColumn(name = "team_b_id")
+    private Team teamB;
 
     @Column(nullable = false)
     private Integer teamAScore = 0;
@@ -64,10 +67,32 @@ public class Match {
 
     private Integer totalOvers;
 
-    private String winner;
+    @ManyToOne
+    @JoinColumn(name = "winner_team_id")
+    private Team winnerTeam;
 
     @Column(nullable = false)
     private Boolean superOver = false;
+
+    private Boolean isBattingFirstTeamWon = false;
+
+    @ManyToOne
+    @JoinColumn(name = "batting_first_team_id")
+    private Team battingFirstTeam;
+
+    @ManyToOne
+    @JoinColumn(name = "batting_second_team_id")
+    private Team battingSecondTeam;
+
+    private Integer winByRuns;
+
+    private Integer winByWickets;
+
+    private Boolean isInningsWin = false;
+
+    private Boolean isMatchDrawn = false;
+
+    private Boolean isMatchTied = false;
 
     private String wonBy;
 

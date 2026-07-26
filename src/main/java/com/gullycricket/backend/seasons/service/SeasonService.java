@@ -6,6 +6,7 @@ import com.gullycricket.backend.seasons.DTOs.MatchResponseDto;
 import com.gullycricket.backend.seasons.DTOs.SeasonSearchDto;
 import com.gullycricket.backend.seasons.entity.Season;
 import com.gullycricket.backend.seasons.repository.SeasonRepository;
+import com.gullycricket.backend.teams.entity.Team;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -48,14 +49,21 @@ public class SeasonService {
         return createdSeason;
     }
 
+    public Season updateSeason(Season season) {
+        log.info("Updating season with ID {} to new name {}", season.getId(), season.getSeasonName());
+        Season updatedSeason = seasonJpaRepository.save(season);
+        log.info("Season with ID {} updated to new name {}", season.getId(), updatedSeason.getSeasonName());
+        return updatedSeason;
+    }
+
     public List<MatchResponseDto> getALlMatchesBySeasonId(String seasonId) {
-            log.info("Fetching all matches for season with ID {}", seasonId);
-            List<MatchResponseDto> matches = matchRepository.findBySeason_Id(seasonId)
-                    .stream()
-                    .map(this::matchToResponseDtoMatch)
-                    .toList();
-            log.info("Retrieved {} matches for season with ID {}", matches.size(), seasonId);
-            return matches;
+        log.info("Fetching all matches for season with ID {}", seasonId);
+        List<MatchResponseDto> matches = matchRepository.findBySeason_Id(seasonId)
+                .stream()
+                .map(this::matchToResponseDtoMatch)
+                .toList();
+        log.info("Retrieved {} matches for season with ID {}", matches.size(), seasonId);
+        return matches;
     }
 
     public List<SeasonSearchDto> searchSeasons(String query){
@@ -80,19 +88,44 @@ public class SeasonService {
     }
 
     private MatchResponseDto matchToResponseDtoMatch(Match match) {
+        // teamA in the response always means "the team that batted first" —
+        // not necessarily match.getTeamA(). Swap teamA/teamB (and their
+        // scores/wickets/balls) if match.getTeamA() actually batted second.
+        Team battingFirstTeam = match.getBattingFirstTeam();
+        boolean teamAIsBattingFirst = battingFirstTeam != null && battingFirstTeam.equals(match.getTeamA());
+
+        Team displayTeamA = teamAIsBattingFirst ? match.getTeamA() : match.getTeamB();
+        Team displayTeamB = teamAIsBattingFirst ? match.getTeamB() : match.getTeamA();
+
+        Integer displayTeamAScore = teamAIsBattingFirst ? match.getTeamAScore() : match.getTeamBScore();
+        Integer displayTeamAWickets = teamAIsBattingFirst ? match.getTeamAWickets() : match.getTeamBWickets();
+        Integer displayTeamABallsFaced = teamAIsBattingFirst ? match.getTeamABallsFaced() : match.getTeamBBallsFaced();
+
+        Integer displayTeamBScore = teamAIsBattingFirst ? match.getTeamBScore() : match.getTeamAScore();
+        Integer displayTeamBWickets = teamAIsBattingFirst ? match.getTeamBWickets() : match.getTeamAWickets();
+        Integer displayTeamBBallsFaced = teamAIsBattingFirst ? match.getTeamBBallsFaced() : match.getTeamABallsFaced();
+
+        // winnerTeam is null for a draw or tie — guard against NPE rather than
+        // assuming every match has a winner.
+        String winnerTeamName = match.getWinnerTeam() != null ? match.getWinnerTeam().getTeamName() : null;
+
         return new MatchResponseDto(
                 match.getId(),
                 match.getSeason().getId(),
-                match.getTeamA(),
-                match.getTeamAScore(),
-                match.getTeamAWickets(),
-                match.getTeamB(),
-                match.getTeamBScore(),
-                match.getTeamBWickets(),
-                match.getWinner(),
+                displayTeamA.getTeamName(),
+                displayTeamAScore,
+                displayTeamAWickets,
+                displayTeamB.getTeamName(),
+                displayTeamBScore,
+                displayTeamBWickets,
+                winnerTeamName,
                 match.getSuperOver(),
                 match.getWonBy(),
-                match.getCompletedAt()
+                match.getCompletedAt(),
+                match.getStatus(),
+                displayTeamABallsFaced,
+                displayTeamBBallsFaced,
+                match.getTotalOvers()
         );
     }
 }

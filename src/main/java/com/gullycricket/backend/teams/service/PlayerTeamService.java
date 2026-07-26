@@ -2,6 +2,7 @@ package com.gullycricket.backend.teams.service;
 
 import com.gullycricket.backend.players.entity.Player;
 import com.gullycricket.backend.seasons.entity.Season;
+import com.gullycricket.backend.teams.DTOs.TeamSeasonPlayerDto;
 import com.gullycricket.backend.teams.entity.PlayerTeam;
 import com.gullycricket.backend.teams.entity.Team;
 import com.gullycricket.backend.teams.reposistory.PlayerTeamRepository;
@@ -38,5 +39,15 @@ public class PlayerTeamService {
                 .stream()
                 .map(pt -> pt.getPlayer().getName())
                 .collect(Collectors.toSet());
+    }
+
+    public List<TeamSeasonPlayerDto> getPlayersByTeamAndSeason(String teamId, String seasonId) {
+        List<PlayerTeam> playerTeams = playerTeamRepository.getPlayersByTeam_IdAndSeason_Id(teamId, seasonId);
+        return playerTeams.stream()
+                .map(pt -> new TeamSeasonPlayerDto(
+                        pt.getPlayer().getId(),
+                        pt.getPlayer().getName()
+                ))
+                .toList();
     }
 }

@@ -15,4 +15,6 @@ public interface PlayerTeamRepository extends JpaRepository<PlayerTeam, String> 
     List<PlayerTeam> findByTeamAndSeason(Team team, Season season);
 
     List<PlayerTeam> findBySeason_IdAndActiveTrue(String seasonId);
+
+    List<PlayerTeam> getPlayersByTeam_IdAndSeason_Id(String teamId, String seasonId);
 }

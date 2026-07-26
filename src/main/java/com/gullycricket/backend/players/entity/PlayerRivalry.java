@@ -1,7 +1,7 @@
 package com.gullycricket.backend.players.entity;
 
 import com.gullycricket.backend.matches.entity.Match;
-import com.gullycricket.backend.matches.entity.MatchFormat;
+import com.gullycricket.backend.matches.entity.MatchType;
 import com.gullycricket.backend.seasons.entity.Season;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
@@ -45,7 +45,7 @@ public class PlayerRivalry {
     private Season season;
 
     @Enumerated(EnumType.STRING)
-    private MatchFormat matchType;
+    private MatchType matchType;
 
     @Column(nullable = false)
     private Integer inningsNumber = 1;
