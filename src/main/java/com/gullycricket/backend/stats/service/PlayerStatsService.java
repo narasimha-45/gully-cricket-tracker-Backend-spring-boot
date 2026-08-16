@@ -1,6 +1,7 @@
 package com.gullycricket.backend.stats.service;
 
 import com.gullycricket.backend.common.exception.ResourceNotFoundException;
+import com.gullycricket.backend.config.CacheNames;
 import com.gullycricket.backend.players.entity.Player;
 import com.gullycricket.backend.players.repository.PlayerRepository;
 import com.gullycricket.backend.stats.dto.*;
@@ -13,6 +14,7 @@ import com.gullycricket.backend.stats.repository.PlayerProfileReadRepository;
 import com.gullycricket.backend.stats.repository.PlayerStatReadRow;
 import com.gullycricket.backend.stats.repository.StatsReadRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -28,14 +30,17 @@ public class PlayerStatsService {
     private final PlayerProfileReadRepository playerProfileReadRepository;
 
     // Leaderboards are aggregated in PostgreSQL and never hydrate Match.matchData.
+    @Cacheable(value = CacheNames.BATTING_LEADERBOARD, sync = true)
     public List<BattingStatsResponse> getBattingLeaderboard(BattingStatsFilter filter, BattingSortBy sortBy, Integer minInnings, Integer limit) {
         return statsReadRepository.findBattingLeaderboard(filter, sortBy, minInnings, limit);
     }
 
+    @Cacheable(value = CacheNames.BOWLING_LEADERBOARD, sync = true)
     public List<BowlingStatsResponse> getBowlingLeaderboard(BowlingStatsFilter filter, BowlingSortBy sortBy, Integer minInnings, Integer limit) {
         return statsReadRepository.findBowlingLeaderboard(filter, sortBy, minInnings, limit);
     }
 
+    @Cacheable(value = CacheNames.FIELDING_LEADERBOARD, sync = true)
     public List<FieldingAndMiscStatsResponse> getFieldingLeaderboard(FieldingAndMiscStatsFilter filter, FieldingSortBy sortBy, Integer limit) {
         return statsReadRepository.findFieldingLeaderboard(filter, sortBy, limit);
     }

@@ -6,6 +6,7 @@ import com.gullycricket.backend.stats.dto.BattingStatsFilter;
 import com.gullycricket.backend.stats.dto.BowlingStatsFilter;
 import com.gullycricket.backend.stats.enums.BattingSortBy;
 import com.gullycricket.backend.stats.enums.BowlingSortBy;
+import com.gullycricket.backend.teams.repository.read.TeamReadRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,6 +38,7 @@ class ReadModelRepositoryIntegrationTest {
     @Autowired StatsReadRepository statsReadRepository;
     @Autowired MatchSummaryReadRepository matchSummaryReadRepository;
     @Autowired SearchReadRepository searchReadRepository;
+    @Autowired TeamReadRepository teamReadRepository;
     @Autowired JdbcTemplate jdbc;
 
     @BeforeEach
@@ -115,6 +117,12 @@ class ReadModelRepositoryIntegrationTest {
         var result = searchReadRepository.globalSearch("ali");
         assertThat(result.players()).hasSize(1);
         assertThat(result.players().getFirst().matchesPlayed()).isEqualTo(1);
+    }
+
+    @Test
+    void seasonTeamsUseCompactReadQuery() {
+        var teams = teamReadRepository.findBySeasonId("s1");
+        assertThat(teams).extracting(team -> team.teamName()).containsExactly("eagles", "spiders");
     }
 
     @Test

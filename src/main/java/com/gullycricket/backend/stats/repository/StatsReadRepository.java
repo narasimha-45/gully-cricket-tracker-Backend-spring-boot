@@ -66,38 +66,7 @@ public class StatsReadRepository {
             case RUNS -> "total_runs DESC, strike_rate DESC, player_name ASC";
         };
 
-        String sql = """
-                SELECT
-                    pm.player_id AS player_id,
-                    p.name AS player_name,
-                    COALESCE(SUM(pm.runs_scored), 0) AS total_runs,
-                    COALESCE(SUM(pm.balls_faced), 0) AS total_balls,
-                    COALESCE(SUM(pm.fours_hit), 0) AS total_fours,
-                    COALESCE(SUM(pm.sixes_hit), 0) AS total_sixes,
-                    COALESCE(SUM(CASE WHEN pm.out = FALSE THEN 1 ELSE 0 END), 0) AS not_outs,
-                    COALESCE(MAX(pm.runs_scored), 0) AS highest_score,
-                    COALESCE(SUM(CASE WHEN pm.out = TRUE AND pm.runs_scored = 0 THEN 1 ELSE 0 END), 0) AS ducks,
-                    COUNT(DISTINCT pm.match_id) AS matches_played,
-                    COUNT(*) AS innings_played,
-                    COALESCE(SUM(pm.dot_balls_played), 0) AS dot_balls,
-                    CASE
-                        WHEN COALESCE(SUM(pm.balls_faced), 0) = 0 THEN 0
-                        ELSE SUM(pm.runs_scored)::double precision * 100.0 / SUM(pm.balls_faced)
-                    END AS strike_rate,
-                    CASE
-                        WHEN SUM(CASE WHEN pm.out = TRUE THEN 1 ELSE 0 END) = 0
-                            THEN COALESCE(SUM(pm.runs_scored), 0)::double precision
-                        ELSE SUM(pm.runs_scored)::double precision /
-                             SUM(CASE WHEN pm.out = TRUE THEN 1 ELSE 0 END)
-                    END AS batting_average
-                FROM player_matches pm
-                JOIN players p ON p.id = pm.player_id
-                JOIN matches m ON m.id = pm.match_id
-                WHERE pm.batted = TRUE
-                """ + where + """
-                GROUP BY pm.player_id, p.name
-                HAVING COUNT(*) >= :minInnings
-                ORDER BY """ + orderBy + " LIMIT :limit";
+        String sql = buildBattingSql(where, orderBy);
 
         return queryTimer.record("stats.battingLeaderboard", () -> jdbc.query(sql, params, (rs, rowNum) -> new BattingStatsResponse(
                 rs.getString("player_id"),
@@ -139,7 +108,106 @@ public class StatsReadRepository {
             case WICKETS -> "total_wickets DESC, bowling_average ASC NULLS LAST, player_name ASC";
         };
 
-        String sql = """
+        String sql = buildBowlingSql(where, orderBy);
+
+        return queryTimer.record("stats.bowlingLeaderboard", () -> jdbc.query(sql, params, (rs, rowNum) -> {
+            int totalBalls = rs.getInt("total_balls_bowled");
+            Double average = nullableDouble(rs, "bowling_average");
+            Double economy = nullableDouble(rs, "economy_rate");
+            return new BowlingStatsResponse(
+                    rs.getString("player_id"),
+                    rs.getString("player_name"),
+                    rs.getInt("total_wickets"),
+                    rs.getInt("total_runs_conceded"),
+                    economy == null ? 0.0 : round2(economy),
+                    toCricketOvers(totalBalls),
+                    rs.getInt("total_maidens"),
+                    average == null ? null : round2(average),
+                    new BestBowlingFigures(
+                            rs.getInt("best_wickets"),
+                            rs.getInt("best_runs_conceded"),
+                            rs.getInt("best_balls_bowled")
+                    ),
+                    rs.getInt("five_wicket_hauls"),
+                    rs.getInt("ten_wicket_hauls"),
+                    rs.getInt("matches_played"),
+                    rs.getInt("innings_bowled"),
+                    rs.getInt("dot_balls_bowled")
+            );
+        }));
+    }
+
+    public List<FieldingAndMiscStatsResponse> findFieldingLeaderboard(
+            FieldingAndMiscStatsFilter filter,
+            FieldingSortBy sortBy,
+            Integer limit
+    ) {
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        String where = commonWhere(params, filter.seasonId(), filter.matchType(), filter.teamId(),
+                filter.opponentTeamId(), filter.inningsNumber(), filter.result());
+        params.addValue("limit", safeLimit(limit));
+
+        String orderBy = switch (sortBy == null ? FieldingSortBy.DISMISSALS : sortBy) {
+            case CATCHES -> "total_catches DESC, player_name ASC";
+            case RUN_OUTS -> "total_run_outs DESC, player_name ASC";
+            case STUMPINGS -> "total_stumpings DESC, player_name ASC";
+            case MAN_OF_THE_MATCH -> "motm_awards DESC, player_name ASC";
+            case DISMISSALS -> "(SUM(pm.catches_taken) + SUM(pm.run_outs) + SUM(pm.stumpings)) DESC, p.name ASC";
+        };
+
+        String sql = buildFieldingSql(where, orderBy);
+
+        return queryTimer.record("stats.fieldingLeaderboard", () -> jdbc.query(sql, params, (rs, rowNum) -> new FieldingAndMiscStatsResponse(
+                rs.getString("player_id"),
+                rs.getString("player_name"),
+                rs.getInt("total_catches"),
+                rs.getInt("total_run_outs"),
+                rs.getInt("total_stumpings"),
+                rs.getInt("matches_played"),
+                rs.getInt("motm_awards")
+        )));
+    }
+
+
+    static String buildBattingSql(String where, String orderBy) {
+        return """
+                SELECT
+                    pm.player_id AS player_id,
+                    p.name AS player_name,
+                    COALESCE(SUM(pm.runs_scored), 0) AS total_runs,
+                    COALESCE(SUM(pm.balls_faced), 0) AS total_balls,
+                    COALESCE(SUM(pm.fours_hit), 0) AS total_fours,
+                    COALESCE(SUM(pm.sixes_hit), 0) AS total_sixes,
+                    COALESCE(SUM(CASE WHEN pm.out = FALSE THEN 1 ELSE 0 END), 0) AS not_outs,
+                    COALESCE(MAX(pm.runs_scored), 0) AS highest_score,
+                    COALESCE(SUM(CASE WHEN pm.out = TRUE AND pm.runs_scored = 0 THEN 1 ELSE 0 END), 0) AS ducks,
+                    COUNT(DISTINCT pm.match_id) AS matches_played,
+                    COUNT(*) AS innings_played,
+                    COALESCE(SUM(pm.dot_balls_played), 0) AS dot_balls,
+                    CASE
+                        WHEN COALESCE(SUM(pm.balls_faced), 0) = 0 THEN 0
+                        ELSE SUM(pm.runs_scored)::double precision * 100.0 / SUM(pm.balls_faced)
+                    END AS strike_rate,
+                    CASE
+                        WHEN SUM(CASE WHEN pm.out = TRUE THEN 1 ELSE 0 END) = 0
+                            THEN COALESCE(SUM(pm.runs_scored), 0)::double precision
+                        ELSE SUM(pm.runs_scored)::double precision /
+                             SUM(CASE WHEN pm.out = TRUE THEN 1 ELSE 0 END)
+                    END AS batting_average
+                FROM player_matches pm
+                JOIN players p ON p.id = pm.player_id
+                JOIN matches m ON m.id = pm.match_id
+                WHERE pm.batted = TRUE
+                %s
+                GROUP BY pm.player_id, p.name
+                HAVING COUNT(*) >= :minInnings
+                ORDER BY %s
+                LIMIT :limit
+                """.formatted(where == null ? "" : where, orderBy);
+    }
+
+    static String buildBowlingSql(String where, String orderBy) {
+        return """
                 WITH filtered AS (
                     SELECT
                         pm.id,
@@ -155,7 +223,7 @@ public class StatsReadRepository {
                     JOIN players p ON p.id = pm.player_id
                     JOIN matches m ON m.id = pm.match_id
                     WHERE pm.bowled = TRUE
-                """ + where + """
+                    %s
                 ),
                 aggregate_stats AS (
                     SELECT
@@ -212,54 +280,13 @@ public class StatsReadRepository {
                 JOIN ranked_figures r ON r.player_id = a.player_id AND r.rn = 1
                 LEFT JOIN ten_haul t ON t.player_id = a.player_id
                 WHERE a.innings_bowled >= :minInnings
-                ORDER BY """ + orderBy + " LIMIT :limit";
-
-        return queryTimer.record("stats.bowlingLeaderboard", () -> jdbc.query(sql, params, (rs, rowNum) -> {
-            int totalBalls = rs.getInt("total_balls_bowled");
-            Double average = nullableDouble(rs, "bowling_average");
-            Double economy = nullableDouble(rs, "economy_rate");
-            return new BowlingStatsResponse(
-                    rs.getString("player_id"),
-                    rs.getString("player_name"),
-                    rs.getInt("total_wickets"),
-                    rs.getInt("total_runs_conceded"),
-                    economy == null ? 0.0 : round2(economy),
-                    toCricketOvers(totalBalls),
-                    rs.getInt("total_maidens"),
-                    average == null ? null : round2(average),
-                    new BestBowlingFigures(
-                            rs.getInt("best_wickets"),
-                            rs.getInt("best_runs_conceded"),
-                            rs.getInt("best_balls_bowled")
-                    ),
-                    rs.getInt("five_wicket_hauls"),
-                    rs.getInt("ten_wicket_hauls"),
-                    rs.getInt("matches_played"),
-                    rs.getInt("innings_bowled"),
-                    rs.getInt("dot_balls_bowled")
-            );
-        }));
+                ORDER BY %s
+                LIMIT :limit
+                """.formatted(where == null ? "" : where, orderBy);
     }
 
-    public List<FieldingAndMiscStatsResponse> findFieldingLeaderboard(
-            FieldingAndMiscStatsFilter filter,
-            FieldingSortBy sortBy,
-            Integer limit
-    ) {
-        MapSqlParameterSource params = new MapSqlParameterSource();
-        String where = commonWhere(params, filter.seasonId(), filter.matchType(), filter.teamId(),
-                filter.opponentTeamId(), filter.inningsNumber(), filter.result());
-        params.addValue("limit", safeLimit(limit));
-
-        String orderBy = switch (sortBy == null ? FieldingSortBy.DISMISSALS : sortBy) {
-            case CATCHES -> "total_catches DESC, player_name ASC";
-            case RUN_OUTS -> "total_run_outs DESC, player_name ASC";
-            case STUMPINGS -> "total_stumpings DESC, player_name ASC";
-            case MAN_OF_THE_MATCH -> "motm_awards DESC, player_name ASC";
-            case DISMISSALS -> "(SUM(pm.catches_taken) + SUM(pm.run_outs) + SUM(pm.stumpings)) DESC, p.name ASC";
-        };
-
-        String sql = """
+    static String buildFieldingSql(String where, String orderBy) {
+        return """
                 SELECT
                     pm.player_id AS player_id,
                     p.name AS player_name,
@@ -272,19 +299,11 @@ public class StatsReadRepository {
                 JOIN players p ON p.id = pm.player_id
                 JOIN matches m ON m.id = pm.match_id
                 WHERE 1 = 1
-                """ + where + """
+                %s
                 GROUP BY pm.player_id, p.name
-                ORDER BY """ + orderBy + " LIMIT :limit";
-
-        return queryTimer.record("stats.fieldingLeaderboard", () -> jdbc.query(sql, params, (rs, rowNum) -> new FieldingAndMiscStatsResponse(
-                rs.getString("player_id"),
-                rs.getString("player_name"),
-                rs.getInt("total_catches"),
-                rs.getInt("total_run_outs"),
-                rs.getInt("total_stumpings"),
-                rs.getInt("matches_played"),
-                rs.getInt("motm_awards")
-        )));
+                ORDER BY %s
+                LIMIT :limit
+                """.formatted(where == null ? "" : where, orderBy);
     }
 
     private String commonWhere(

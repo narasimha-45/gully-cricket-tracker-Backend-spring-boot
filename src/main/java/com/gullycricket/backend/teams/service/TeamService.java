@@ -5,6 +5,7 @@ import com.gullycricket.backend.config.CacheNames;
 import com.gullycricket.backend.teams.dto.TeamSearchSuggestionDto;
 import com.gullycricket.backend.teams.entity.Team;
 import com.gullycricket.backend.teams.repository.TeamRepository;
+import com.gullycricket.backend.teams.repository.read.TeamReadRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
@@ -18,6 +19,7 @@ import java.util.List;
 public class TeamService {
 
     private final TeamRepository teamRepository;
+    private final TeamReadRepository teamReadRepository;
 
     @Transactional(readOnly = true)
     public List<TeamSearchSuggestionDto> searchTeam(String query) {
@@ -55,20 +57,14 @@ public class TeamService {
         teamRepository.addSeasonMembership(teamId, seasonId);
     }
 
-    @Transactional(readOnly = true)
-    @Cacheable(CacheNames.ALL_TEAMS)
+    @Cacheable(value = CacheNames.ALL_TEAMS, sync = true)
     public List<TeamSearchSuggestionDto> getAllTeams() {
-        return teamRepository.findAll().stream()
-                .map(team -> new TeamSearchSuggestionDto(team.getId(), team.getTeamName()))
-                .toList();
+        return teamReadRepository.findAll();
     }
 
-    @Transactional(readOnly = true)
-    @Cacheable(value = CacheNames.SEASON_TEAMS, key = "#seasonId")
+    @Cacheable(value = CacheNames.SEASON_TEAMS, key = "#seasonId", sync = true)
     public List<TeamSearchSuggestionDto> getTeamsBySeasonId(String seasonId) {
-        return teamRepository.findDistinctBySeasonsPlayed_Id(seasonId).stream()
-                .map(team -> new TeamSearchSuggestionDto(team.getId(), team.getTeamName()))
-                .toList();
+        return teamReadRepository.findBySeasonId(seasonId);
     }
 
     private String normalizeSearch(String query) {

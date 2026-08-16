@@ -28,7 +28,7 @@ public class SeasonService {
     private final MatchSummaryReadRepository matchSummaryReadRepository;
 
     @Transactional(readOnly = true)
-    @Cacheable(CacheNames.ALL_SEASONS)
+    @Cacheable(value = CacheNames.ALL_SEASONS, sync = true)
     public List<Season> getAllSeasons() {
         return seasonRepository.findAll();
     }
@@ -84,6 +84,7 @@ public class SeasonService {
         }
     }
 
+    @Cacheable(value = CacheNames.SEASON_MATCHES, key = "#seasonId", sync = true)
     public List<MatchResponseDto> getAllMatchesBySeasonId(String seasonId) {
         List<MatchSummaryRow> matches = matchSummaryReadRepository.findBySeasonId(seasonId);
         // Active seasons normally have matches, so avoid paying an extra EXISTS round trip

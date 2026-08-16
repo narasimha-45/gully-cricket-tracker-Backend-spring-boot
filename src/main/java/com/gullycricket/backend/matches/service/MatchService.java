@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gullycricket.backend.common.exception.BadRequestException;
 import com.gullycricket.backend.common.exception.ResourceNotFoundException;
 import com.gullycricket.backend.common.util.NameNormalizer;
+import com.gullycricket.backend.config.CacheNames;
 import com.gullycricket.backend.matches.dto.*;
 import com.gullycricket.backend.matches.entity.Match;
 import com.gullycricket.backend.matches.entity.MatchInningsSummary;
@@ -18,6 +19,7 @@ import com.gullycricket.backend.teams.entity.Team;
 import com.gullycricket.backend.teams.service.TeamService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -51,6 +53,12 @@ public class MatchService {
      * Backward-compatible entry point used by the Mongo migration.
      */
     @Transactional
+    @CacheEvict(value = {
+            CacheNames.SEASON_MATCHES,
+            CacheNames.BATTING_LEADERBOARD,
+            CacheNames.BOWLING_LEADERBOARD,
+            CacheNames.FIELDING_LEADERBOARD
+    }, allEntries = true)
     public MatchResponseDto saveMatch(JsonNode matchData) {
         try {
             MatchDataDto dto = objectMapper.convertValue(matchData, MatchDataDto.class);
@@ -65,6 +73,12 @@ public class MatchService {
      * retries return the already-created match rather than duplicating it.
      */
     @Transactional
+    @CacheEvict(value = {
+            CacheNames.SEASON_MATCHES,
+            CacheNames.BATTING_LEADERBOARD,
+            CacheNames.BOWLING_LEADERBOARD,
+            CacheNames.FIELDING_LEADERBOARD
+    }, allEntries = true)
     public MatchResponseDto saveMatch(MatchDataDto rawDto, String idempotencyKey) {
         String normalizedIdempotencyKey = normalizeIdempotencyKey(idempotencyKey);
         if (normalizedIdempotencyKey != null) {
