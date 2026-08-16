@@ -41,11 +41,11 @@ public class Match {
     private Season season;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(name = "status", nullable = false)
     private MatchStatus status;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(name = "match_type", nullable = false)
     private MatchType matchType;
 
     @ManyToOne(optional = false, fetch = FetchType.LAZY)
@@ -56,33 +56,35 @@ public class Match {
     @JoinColumn(name = "team_b_id")
     private Team teamB;
 
-    @Column(nullable = false)
+    @Column(name = "team_a_score", nullable = false)
     private Integer teamAScore = 0;
 
-    @Column(nullable = false)
+    @Column(name = "team_a_wickets", nullable = false)
     private Integer teamAWickets = 0;
 
-    @Column(nullable = false)
+    @Column(name = "team_a_balls_faced", nullable = false)
     private Integer teamABallsFaced = 0;
 
-    @Column(nullable = false)
+    @Column(name = "team_b_score", nullable = false)
     private Integer teamBScore = 0;
 
-    @Column(nullable = false)
+    @Column(name = "team_b_wickets", nullable = false)
     private Integer teamBWickets = 0;
 
-    @Column(nullable = false)
+    @Column(name = "team_b_balls_faced", nullable = false)
     private Integer teamBBallsFaced = 0;
 
+    @Column(name = "total_overs")
     private Integer totalOvers;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "winner_team_id")
     private Team winnerTeam;
 
-    @Column(nullable = false)
+    @Column(name = "super_over", nullable = false)
     private Boolean superOver = false;
 
+    @Column(name = "is_batting_first_team_won")
     private Boolean isBattingFirstTeamWon = false;
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -93,16 +95,22 @@ public class Match {
     @JoinColumn(name = "batting_second_team_id")
     private Team battingSecondTeam;
 
+    @Column(name = "win_by_runs")
     private Integer winByRuns;
 
+    @Column(name = "win_by_wickets")
     private Integer winByWickets;
 
+    @Column(name = "is_innings_win")
     private Boolean isInningsWin = false;
 
+    @Column(name = "is_match_drawn")
     private Boolean isMatchDrawn = false;
 
+    @Column(name = "is_match_tied")
     private Boolean isMatchTied = false;
 
+    @Column(name = "won_by")
     private String wonBy;
 
     @OneToMany(
@@ -114,14 +122,16 @@ public class Match {
             new ArrayList<>();
 
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(columnDefinition = "jsonb")
+    @Column(name = "match_data", columnDefinition = "jsonb")
     private JsonNode matchData;
 
-    @Column(unique = true, length = 128)
+    @Column(name = "idempotency_key", unique = true, length = 128)
     private String idempotencyKey;
 
     @Version
+    @Column(name = "version")
     private Long version;
 
+    @Column(name = "completed_at")
     private LocalDateTime completedAt;
 }

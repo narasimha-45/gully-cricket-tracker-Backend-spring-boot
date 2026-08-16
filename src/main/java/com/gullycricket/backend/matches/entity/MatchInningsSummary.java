@@ -47,21 +47,21 @@ public class MatchInningsSummary {
     private Integer sequenceNumber;
 
     /** Number of times this team has batted in the match: 1 or 2 for Test cricket. */
-    @Column(nullable = false)
+    @Column(name = "team_innings_number", nullable = false)
     private Integer teamInningsNumber;
 
-    @Column(nullable = false)
+    @Column(name = "runs", nullable = false)
     private Integer runs = 0;
 
-    @Column(nullable = false)
+    @Column(name = "wickets", nullable = false)
     private Integer wickets = 0;
 
-    @Column(nullable = false)
+    @Column(name = "balls", nullable = false)
     private Integer balls = 0;
 
-    @Column(nullable = false)
+    @Column(name = "super_over", nullable = false)
     private boolean superOver = false;
 
-    @Column(nullable = false)
+    @Column(name = "completed", nullable = false)
     private boolean completed = false;
 }

@@ -27,16 +27,16 @@ public class DbQueryTimer {
         } finally {
             long elapsedNanos = System.nanoTime() - started;
             Timer.builder("gully.db.read")
-                    .description("Read-model database query latency")
+                    .description("Read-model JDBC latency including connection acquisition, SQL execution, and row mapping")
                     .tag("query", queryName)
                     .register(meterRegistry)
                     .record(elapsedNanos, TimeUnit.NANOSECONDS);
 
             long elapsedMs = TimeUnit.NANOSECONDS.toMillis(elapsedNanos);
             if (elapsedMs >= slowQueryMs) {
-                log.warn("Slow DB read query={} durationMs={}", queryName, elapsedMs);
+                log.warn("Slow JDBC read query={} jdbcTotalMs={}", queryName, elapsedMs);
             } else {
-                log.debug("DB read timing query={} durationMs={}", queryName, elapsedMs);
+                log.debug("JDBC read timing query={} jdbcTotalMs={}", queryName, elapsedMs);
             }
         }
     }
