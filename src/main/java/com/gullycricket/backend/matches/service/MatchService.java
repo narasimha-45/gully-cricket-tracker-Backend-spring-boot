@@ -13,6 +13,7 @@ import com.gullycricket.backend.matches.entity.MatchType;
 import com.gullycricket.backend.matches.repository.MatchRepository;
 import com.gullycricket.backend.seasons.entity.Season;
 import com.gullycricket.backend.seasons.repository.SeasonRepository;
+import com.gullycricket.backend.seasons.service.SeasonService;
 import com.gullycricket.backend.teams.entity.Team;
 import com.gullycricket.backend.teams.service.TeamService;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +38,7 @@ public class MatchService {
     private final ProcessPlayerStatsService processPlayerStatsService;
     private final TeamService teamService;
     private final MatchValidator matchValidator;
+    private final SeasonService seasonService;
 
     @Transactional(readOnly = true)
     public MatchResponseDto getMatchById(String matchId) {
@@ -93,8 +95,14 @@ public class MatchService {
         String teamBName = teamBDto.name();
         String winner = dto.result() == null ? null : dto.result().winner();
 
-        Team teamAEntity = resolveTeam(teamAName, season);
-        Team teamBEntity = resolveTeam(teamBName, season);
+        // Resolve both teams in one SELECT. With a remote PostgreSQL database, cutting
+        // a round trip here is more valuable than micro-optimizing Java code.
+        Map<String, Team> existingTeams = new HashMap<>();
+        for (Team team : teamService.getTeamsByNames(List.of(teamAName, teamBName))) {
+            existingTeams.put(team.getTeamName(), team);
+        }
+        Team teamAEntity = resolveTeam(teamAName, season, existingTeams.get(teamAName));
+        Team teamBEntity = resolveTeam(teamBName, season, existingTeams.get(teamBName));
 
         String battingFirstTeamName = regularInnings.getFirst().battingTeam();
         boolean teamABattedFirst = battingFirstTeamName.equals(teamAName);
@@ -135,7 +143,7 @@ public class MatchService {
         processPlayerStatsService.processPlayerStats(savedMatch, dto);
 
         // Atomic database increment prevents lost updates when two matches are created concurrently.
-        seasonRepository.incrementMatchesPlayed(season.getId());
+        seasonService.incrementMatchesPlayed(season.getId());
 
         log.info("Match created: matchId={}, seasonId={}, matchType={}, innings={}",
                 savedMatch.getId(), season.getId(), dto.matchType(), regularInnings.size());
@@ -157,14 +165,17 @@ public class MatchService {
         return trimmed;
     }
 
-    private Team resolveTeam(String canonicalTeamName, Season season) {
-        Team team = teamService.getTeamByName(canonicalTeamName);
+    private Team resolveTeam(String canonicalTeamName, Season season, Team existingTeam) {
+        Team team = existingTeam;
         if (team == null) {
             team = new Team();
             team.setTeamName(canonicalTeamName);
+            team = teamService.saveTeam(team);
         }
-        team.getSeasonsPlayed().add(season);
-        return teamService.saveTeam(team);
+        // Avoid initializing the Team.seasonsPlayed collection on every match. A direct
+        // idempotent join-table insert is one small statement and works for existing teams.
+        teamService.ensureTeamInSeason(team.getId(), season.getId());
+        return team;
     }
 
     private void populateInningsSummaries(Match match, List<InningsDto> innings,

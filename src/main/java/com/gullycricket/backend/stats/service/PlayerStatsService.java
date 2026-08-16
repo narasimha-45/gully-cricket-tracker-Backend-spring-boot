@@ -1,125 +1,70 @@
 package com.gullycricket.backend.stats.service;
 
 import com.gullycricket.backend.common.exception.ResourceNotFoundException;
-import com.gullycricket.backend.matches.entity.Match;
 import com.gullycricket.backend.players.entity.Player;
-import com.gullycricket.backend.players.entity.PlayerMatch;
-import com.gullycricket.backend.players.repository.PlayerMatchRepository;
 import com.gullycricket.backend.players.repository.PlayerRepository;
-import com.gullycricket.backend.seasons.entity.Season;
 import com.gullycricket.backend.stats.dto.*;
 import com.gullycricket.backend.stats.enums.BattingSortBy;
 import com.gullycricket.backend.stats.enums.BestBowlingFigures;
 import com.gullycricket.backend.stats.enums.BowlingSortBy;
 import com.gullycricket.backend.stats.enums.FieldingSortBy;
 import com.gullycricket.backend.stats.enums.MatchResult;
-import com.gullycricket.backend.stats.specification.PlayerMatchSpecifications;
-import com.gullycricket.backend.teams.entity.Team;
+import com.gullycricket.backend.stats.repository.PlayerProfileReadRepository;
+import com.gullycricket.backend.stats.repository.PlayerStatReadRow;
+import com.gullycricket.backend.stats.repository.StatsReadRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.*;
+import java.util.function.ToIntFunction;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-@Transactional(readOnly = true)
 public class PlayerStatsService {
 
-    private final PlayerMatchRepository playerMatchRepository;
     private final PlayerRepository playerRepository;
+    private final StatsReadRepository statsReadRepository;
+    private final PlayerProfileReadRepository playerProfileReadRepository;
 
-    // =====================================================================
-    // Leaderboards
-    // =====================================================================
-
+    // Leaderboards are aggregated in PostgreSQL and never hydrate Match.matchData.
     public List<BattingStatsResponse> getBattingLeaderboard(BattingStatsFilter filter, BattingSortBy sortBy, Integer minInnings, Integer limit) {
-        Specification<PlayerMatch> spec = PlayerMatchSpecifications
-                .withCommonFilters(filter.seasonId(), filter.matchType(), filter.teamId(), filter.opponentTeamId(), filter.inningsNumber(), filter.result())
-                .and(PlayerMatchSpecifications.battingPosition(filter.battingPosition()))
-                .and(PlayerMatchSpecifications.batted());
-
-        Map<String, List<PlayerMatch>> byPlayer = groupByPlayer(playerMatchRepository.findAll(spec));
-
-        List<BattingStatsResponse> results = byPlayer.values().stream()
-                .map(rows -> computeBatting(playerId(rows), playerName(rows), rows))
-                .filter(r -> minInnings == null || r.inningsPlayed() >= minInnings)
-                .collect(Collectors.toList());
-
-        results.sort(battingComparator(sortBy));
-        return applyLimit(results, limit);
+        return statsReadRepository.findBattingLeaderboard(filter, sortBy, minInnings, limit);
     }
 
     public List<BowlingStatsResponse> getBowlingLeaderboard(BowlingStatsFilter filter, BowlingSortBy sortBy, Integer minInnings, Integer limit) {
-        Specification<PlayerMatch> spec = PlayerMatchSpecifications
-                .withCommonFilters(filter.seasonId(), filter.matchType(), filter.teamId(), filter.opponentTeamId(), filter.inningsNumber(), filter.result())
-                .and(PlayerMatchSpecifications.bowled());
-
-        Map<String, List<PlayerMatch>> byPlayer = groupByPlayer(playerMatchRepository.findAll(spec));
-
-        List<BowlingStatsResponse> results = byPlayer.values().stream()
-                .map(rows -> computeBowling(playerId(rows), playerName(rows), rows))
-                .filter(r -> minInnings == null || r.inningsBowled() >= minInnings)
-                .collect(Collectors.toList());
-
-        results.sort(bowlingComparator(sortBy));
-        return applyLimit(results, limit);
+        return statsReadRepository.findBowlingLeaderboard(filter, sortBy, minInnings, limit);
     }
 
     public List<FieldingAndMiscStatsResponse> getFieldingLeaderboard(FieldingAndMiscStatsFilter filter, FieldingSortBy sortBy, Integer limit) {
-        Specification<PlayerMatch> spec = PlayerMatchSpecifications
-                .withCommonFilters(filter.seasonId(), filter.matchType(), filter.teamId(), filter.opponentTeamId(), filter.inningsNumber(), filter.result());
-
-        Map<String, List<PlayerMatch>> byPlayer = groupByPlayer(playerMatchRepository.findAll(spec));
-
-        List<FieldingAndMiscStatsResponse> results = byPlayer.values().stream()
-                .map(rows -> computeFielding(playerId(rows), playerName(rows), rows))
-                .collect(Collectors.toList());
-
-        results.sort(fieldingComparator(sortBy));
-        return applyLimit(results, limit);
+        return statsReadRepository.findFieldingLeaderboard(filter, sortBy, limit);
     }
 
-    // =====================================================================
-    // Player Profile
-    // =====================================================================
-
     public PlayerProfileDto getPlayerProfile(String playerId, String seasonId) {
-        List<PlayerMatch> rows = seasonId != null
-                ? playerMatchRepository.findByPlayer_IdAndSeason_Id(playerId, seasonId)
-                : playerMatchRepository.findByPlayer_Id(playerId);
+        List<PlayerStatReadRow> rows = playerProfileReadRepository.findRows(playerId, seasonId);
+        String name;
+        if (rows.isEmpty()) {
+            Player player = playerRepository.findById(playerId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Player not found: " + playerId));
+            name = player.getName();
+        } else {
+            name = rows.getFirst().playerName();
+        }
 
-        Player player = rows.isEmpty()
-                ? playerRepository.findById(playerId)
-                    .orElseThrow(() -> new ResourceNotFoundException("Player not found: " + playerId))
-                : rows.get(0).getPlayer();
-
-        String name = player.getName();
-
-        Set<String> distinctMatchIds = rows.stream().map(pm -> pm.getMatch().getId()).collect(Collectors.toSet());
-        Set<String> wonMatchIds = rows.stream().filter(PlayerMatch::isMatchWon).map(pm -> pm.getMatch().getId()).collect(Collectors.toSet());
-        Set<String> motmMatchIds = rows.stream().filter(PlayerMatch::isPlayerOfTheMatch).map(pm -> pm.getMatch().getId()).collect(Collectors.toSet());
-
-        int matchesPlayed = distinctMatchIds.size();
-        int matchesWon = wonMatchIds.size();
-
-        BattingStatsResponse batting = computeBatting(playerId, name, rows);
-        BowlingStatsResponse bowling = computeBowling(playerId, name, rows);
-        FieldingAndMiscStatsResponse fielding = computeFielding(playerId, name, rows);
+        Set<String> matchIds = distinctMatches(rows);
+        Set<String> wonMatchIds = rows.stream().filter(PlayerStatReadRow::matchWon).map(PlayerStatReadRow::matchId).collect(Collectors.toSet());
+        int motm = (int) rows.stream().filter(PlayerStatReadRow::playerOfTheMatch).map(PlayerStatReadRow::matchId).distinct().count();
 
         return new PlayerProfileDto(
                 playerId,
                 name,
-                matchesPlayed,
-                matchesWon,
-                round2(matchesPlayed == 0 ? 0 : matchesWon * 100.0 / matchesPlayed),
-                motmMatchIds.size(),
-                batting,
-                bowling,
-                fielding,
+                matchIds.size(),
+                wonMatchIds.size(),
+                round2(matchIds.isEmpty() ? 0 : wonMatchIds.size() * 100.0 / matchIds.size()),
+                motm,
+                computeBatting(playerId, name, rows),
+                computeBowling(playerId, name, rows),
+                computeFielding(playerId, name, rows),
                 getRecentForm(rows, 3),
                 getByBattingPosition(rows),
                 getByInnings(rows),
@@ -129,86 +74,72 @@ public class PlayerStatsService {
         );
     }
 
-    private List<RecentInningDto> getRecentForm(List<PlayerMatch> rows, int count) {
-        List<PlayerMatch> batted = rows.stream().filter(PlayerMatch::isBatted).collect(Collectors.toList());
-
-        batted.sort((a, b) -> {
-            LocalDateTime da = a.getMatch().getCompletedAt();
-            LocalDateTime db = b.getMatch().getCompletedAt();
-            if (da == null && db == null) return 0;
-            if (da == null) return 1;
-            if (db == null) return -1;
-            return db.compareTo(da);
-        });
-
-        return batted.stream()
+    private List<RecentInningDto> getRecentForm(List<PlayerStatReadRow> rows, int count) {
+        return rows.stream()
+                .filter(PlayerStatReadRow::batted)
+                .sorted(Comparator.comparing(PlayerStatReadRow::completedAt, Comparator.nullsLast(Comparator.reverseOrder())))
                 .limit(count)
-                .map(pm -> new RecentInningDto(
-                        pm.getMatch().getId(),
-                        pm.getSeason().getId(),
-                        pm.getSeason().getSeasonName(),
-                        pm.getTeamRepresented().getId(),
-                        pm.getTeamRepresented().getTeamName(),
-                        pm.getOppositionTeam().getId(),
-                        pm.getOppositionTeam().getTeamName(),
-                        pm.getBattingPosition(),
-                        pm.getRunsScored(),
-                        pm.getBallsFaced(),
-                        pm.getFoursHit(),
-                        pm.getSixesHit(),
-                        pm.isOut(),
-                        pm.isMatchWon(),
-                        pm.getMatch().getCompletedAt()
+                .map(row -> new RecentInningDto(
+                        row.matchId(), row.seasonId(), row.seasonName(),
+                        row.teamId(), row.teamName(), row.opponentTeamId(), row.opponentTeamName(),
+                        row.battingPosition(), row.runsScored(), row.ballsFaced(), row.foursHit(), row.sixesHit(),
+                        row.out(), row.matchWon(), row.completedAt()
                 ))
                 .toList();
     }
 
-    private List<BattingPositionStatsDto> getByBattingPosition(List<PlayerMatch> rows) {
-        Map<Integer, List<PlayerMatch>> byPosition = rows.stream()
-                .filter(PlayerMatch::isBatted)
-                .filter(pm -> pm.getBattingPosition() != null)
-                .collect(Collectors.groupingBy(PlayerMatch::getBattingPosition));
-
-        return byPosition.entrySet().stream()
-                .map(e -> computePositionStats(e.getKey(), e.getValue()))
+    private List<BattingPositionStatsDto> getByBattingPosition(List<PlayerStatReadRow> rows) {
+        return rows.stream()
+                .filter(PlayerStatReadRow::batted)
+                .filter(row -> row.battingPosition() != null)
+                .collect(Collectors.groupingBy(PlayerStatReadRow::battingPosition))
+                .entrySet().stream()
+                .map(entry -> computePositionStats(entry.getKey(), entry.getValue()))
                 .sorted(Comparator.comparing(BattingPositionStatsDto::battingPosition))
                 .toList();
     }
 
-    private BattingPositionStatsDto computePositionStats(Integer position, List<PlayerMatch> rows) {
+    private BattingPositionStatsDto computePositionStats(Integer position, List<PlayerStatReadRow> rows) {
         int innings = rows.size();
-        int notOuts = (int) rows.stream().filter(pm -> !pm.isOut()).count();
+        int notOuts = (int) rows.stream().filter(row -> !row.out()).count();
         int outs = innings - notOuts;
-        int runs = sumInt(rows, PlayerMatch::getRunsScored);
-        int balls = sumInt(rows, PlayerMatch::getBallsFaced);
-        int fours = sumInt(rows, PlayerMatch::getFoursHit);
-        int sixes = sumInt(rows, PlayerMatch::getSixesHit);
-        int highest = rows.stream().mapToInt(PlayerMatch::getRunsScored).max().orElse(0);
-        double avg = outs == 0 ? runs : (double) runs / outs;
-        double sr = balls == 0 ? 0 : runs * 100.0 / balls;
-
-        return new BattingPositionStatsDto(position, innings, notOuts, runs, balls, round2(avg), round2(sr), highest, fours, sixes);
+        int runs = sum(rows, PlayerStatReadRow::runsScored);
+        int balls = sum(rows, PlayerStatReadRow::ballsFaced);
+        int highest = rows.stream().mapToInt(PlayerStatReadRow::runsScored).max().orElse(0);
+        return new BattingPositionStatsDto(
+                position, innings, notOuts, runs, balls,
+                round2(outs == 0 ? runs : (double) runs / outs),
+                round2(balls == 0 ? 0 : runs * 100.0 / balls),
+                highest,
+                sum(rows, PlayerStatReadRow::foursHit),
+                sum(rows, PlayerStatReadRow::sixesHit)
+        );
     }
 
-    private List<PlayerSplitStatsDto> getByInnings(List<PlayerMatch> rows) {
-        Map<Integer, List<PlayerMatch>> byInnings = rows.stream().collect(Collectors.groupingBy(PlayerMatch::getInningsNumber));
-
-        return byInnings.entrySet().stream()
-                .sorted(Map.Entry.comparingByKey())
-                .map(e -> computeSplit("innings_" + e.getKey(), "Innings " + e.getKey(), e.getValue()))
+    private List<PlayerSplitStatsDto> getByInnings(List<PlayerStatReadRow> rows) {
+        return rows.stream()
+                .collect(Collectors.groupingBy(PlayerStatReadRow::inningsNumber))
+                .entrySet().stream()
+                .sorted(Map.Entry.comparingByKey(Comparator.nullsLast(Comparator.naturalOrder())))
+                .map(entry -> computeSplit("innings_" + entry.getKey(), "Innings " + entry.getKey(), entry.getValue()))
                 .toList();
     }
 
-    private List<PlayerSplitStatsDto> getByMatchResult(List<PlayerMatch> rows) {
-        Map<MatchResult, List<PlayerMatch>> byResult = rows.stream().collect(Collectors.groupingBy(this::resultOf));
-
+    private List<PlayerSplitStatsDto> getByMatchResult(List<PlayerStatReadRow> rows) {
+        Map<MatchResult, List<PlayerStatReadRow>> grouped = rows.stream().collect(Collectors.groupingBy(this::resultOf));
         return Arrays.stream(MatchResult.values())
-                .filter(byResult::containsKey)
-                .map(result -> computeSplit(result.name(), toLabel(result), byResult.get(result)))
+                .filter(grouped::containsKey)
+                .map(result -> computeSplit(result.name(), resultLabel(result), grouped.get(result)))
                 .toList();
     }
 
-    private String toLabel(MatchResult result) {
+    private MatchResult resultOf(PlayerStatReadRow row) {
+        if (row.matchTied()) return MatchResult.TIE;
+        if (row.matchDrawn() || row.winnerTeamId() == null) return MatchResult.NO_RESULT;
+        return row.matchWon() ? MatchResult.WIN : MatchResult.LOSS;
+    }
+
+    private String resultLabel(MatchResult result) {
         return switch (result) {
             case WIN -> "Won";
             case LOSS -> "Lost";
@@ -217,215 +148,177 @@ public class PlayerStatsService {
         };
     }
 
-    private MatchResult resultOf(PlayerMatch pm) {
-        Match match = pm.getMatch();
-        if (Boolean.TRUE.equals(match.getIsMatchTied())) return MatchResult.TIE;
-        if (Boolean.TRUE.equals(match.getIsMatchDrawn())) return MatchResult.NO_RESULT;
-        return pm.isMatchWon() ? MatchResult.WIN : MatchResult.LOSS;
-    }
+    private PlayerSplitStatsDto computeSplit(String key, String label, List<PlayerStatReadRow> rows) {
+        Set<String> matchIds = distinctMatches(rows);
+        int wins = (int) rows.stream().filter(PlayerStatReadRow::matchWon).map(PlayerStatReadRow::matchId).distinct().count();
+        List<PlayerStatReadRow> batted = rows.stream().filter(PlayerStatReadRow::batted).toList();
+        List<PlayerStatReadRow> bowled = rows.stream().filter(PlayerStatReadRow::bowled).toList();
 
-    private PlayerSplitStatsDto computeSplit(String key, String label, List<PlayerMatch> rows) {
-        Set<String> matchIds = rows.stream().map(pm -> pm.getMatch().getId()).collect(Collectors.toSet());
-        Set<String> wonMatchIds = rows.stream().filter(PlayerMatch::isMatchWon).map(pm -> pm.getMatch().getId()).collect(Collectors.toSet());
-
-        List<PlayerMatch> batted = rows.stream().filter(PlayerMatch::isBatted).toList();
-        List<PlayerMatch> bowled = rows.stream().filter(PlayerMatch::isBowled).toList();
-
-        int runs = sumInt(batted, PlayerMatch::getRunsScored);
-        int balls = sumInt(batted, PlayerMatch::getBallsFaced);
-        int outs = (int) batted.stream().filter(PlayerMatch::isOut).count();
-        int highest = batted.stream().mapToInt(PlayerMatch::getRunsScored).max().orElse(0);
-        double battingAvg = outs == 0 ? runs : (double) runs / outs;
-        double sr = balls == 0 ? 0 : runs * 100.0 / balls;
-
-        int wickets = sumInt(bowled, PlayerMatch::getWicketsTaken);
-        int runsConceded = sumInt(bowled, PlayerMatch::getRunsConceded);
-        int ballsBowled = sumInt(bowled, PlayerMatch::getBallsBowled);
-        double economy = ballsBowled == 0 ? 0 : runsConceded / (ballsBowled / 6.0);
-        double bowlingAvg = wickets == 0 ? 0 : (double) runsConceded / wickets;
+        int runs = sum(batted, PlayerStatReadRow::runsScored);
+        int balls = sum(batted, PlayerStatReadRow::ballsFaced);
+        int outs = (int) batted.stream().filter(PlayerStatReadRow::out).count();
+        int highest = batted.stream().mapToInt(PlayerStatReadRow::runsScored).max().orElse(0);
+        int wickets = sum(bowled, PlayerStatReadRow::wicketsTaken);
+        int conceded = sum(bowled, PlayerStatReadRow::runsConceded);
+        int ballsBowled = sum(bowled, PlayerStatReadRow::ballsBowled);
 
         return new PlayerSplitStatsDto(
-                key, label,
-                matchIds.size(), wonMatchIds.size(),
-                batted.size(), runs, balls, round2(battingAvg), round2(sr), highest,
-                bowled.size(), wickets, runsConceded, round2(economy), round2(bowlingAvg)
+                key, label, matchIds.size(), wins,
+                batted.size(), runs, balls,
+                round2(outs == 0 ? runs : (double) runs / outs),
+                round2(balls == 0 ? 0 : runs * 100.0 / balls), highest,
+                bowled.size(), wickets, conceded,
+                round2(ballsBowled == 0 ? 0 : conceded * 6.0 / ballsBowled),
+                round2(wickets == 0 ? 0 : (double) conceded / wickets)
         );
     }
 
-    private List<SeasonPlayerStatsDto> getBySeason(List<PlayerMatch> rows) {
-        Map<String, List<PlayerMatch>> bySeason = rows.stream().collect(Collectors.groupingBy(pm -> pm.getSeason().getId()));
-
-        return bySeason.values().stream()
-                .map(list -> computeSeasonStats(list.get(0).getSeason(), list))
+    private List<SeasonPlayerStatsDto> getBySeason(List<PlayerStatReadRow> rows) {
+        return rows.stream()
+                .collect(Collectors.groupingBy(PlayerStatReadRow::seasonId))
+                .values().stream()
+                .map(this::computeSeasonStats)
                 .sorted(Comparator.comparing(SeasonPlayerStatsDto::seasonName, Comparator.nullsLast(Comparator.naturalOrder())))
                 .toList();
     }
 
-    private SeasonPlayerStatsDto computeSeasonStats(Season season, List<PlayerMatch> rows) {
-        Set<String> matchIds = rows.stream().map(pm -> pm.getMatch().getId()).collect(Collectors.toSet());
-        Set<String> wonMatchIds = rows.stream().filter(PlayerMatch::isMatchWon).map(pm -> pm.getMatch().getId()).collect(Collectors.toSet());
-        Set<String> motmMatchIds = rows.stream().filter(PlayerMatch::isPlayerOfTheMatch).map(pm -> pm.getMatch().getId()).collect(Collectors.toSet());
-
-        List<PlayerMatch> batted = rows.stream().filter(PlayerMatch::isBatted).toList();
-        List<PlayerMatch> bowled = rows.stream().filter(PlayerMatch::isBowled).toList();
-
-        int runs = sumInt(batted, PlayerMatch::getRunsScored);
-        int balls = sumInt(batted, PlayerMatch::getBallsFaced);
-        int outs = (int) batted.stream().filter(PlayerMatch::isOut).count();
-        int highest = batted.stream().mapToInt(PlayerMatch::getRunsScored).max().orElse(0);
-        double avg = outs == 0 ? runs : (double) runs / outs;
-        double sr = balls == 0 ? 0 : runs * 100.0 / balls;
-        int fifties = (int) batted.stream().filter(pm -> pm.getRunsScored() >= 50 && pm.getRunsScored() < 100).count();
-        int hundreds = (int) batted.stream().filter(pm -> pm.getRunsScored() >= 100).count();
-
-        int wickets = sumInt(bowled, PlayerMatch::getWicketsTaken);
-        int runsConceded = sumInt(bowled, PlayerMatch::getRunsConceded);
-        int ballsBowled = sumInt(bowled, PlayerMatch::getBallsBowled);
-        double economy = ballsBowled == 0 ? 0 : runsConceded / (ballsBowled / 6.0);
-        double bowlingAvg = wickets == 0 ? 0 : (double) runsConceded / wickets;
-
-        int catches = sumInt(rows, PlayerMatch::getCatchesTaken);
-        int runOuts = sumInt(rows, PlayerMatch::getRunOuts);
-        int stumpings = sumInt(rows, PlayerMatch::getStumpings);
+    private SeasonPlayerStatsDto computeSeasonStats(List<PlayerStatReadRow> rows) {
+        PlayerStatReadRow any = rows.getFirst();
+        Set<String> matchIds = distinctMatches(rows);
+        int wins = (int) rows.stream().filter(PlayerStatReadRow::matchWon).map(PlayerStatReadRow::matchId).distinct().count();
+        int motm = (int) rows.stream().filter(PlayerStatReadRow::playerOfTheMatch).map(PlayerStatReadRow::matchId).distinct().count();
+        List<PlayerStatReadRow> batted = rows.stream().filter(PlayerStatReadRow::batted).toList();
+        List<PlayerStatReadRow> bowled = rows.stream().filter(PlayerStatReadRow::bowled).toList();
+        int runs = sum(batted, PlayerStatReadRow::runsScored);
+        int balls = sum(batted, PlayerStatReadRow::ballsFaced);
+        int outs = (int) batted.stream().filter(PlayerStatReadRow::out).count();
+        int wickets = sum(bowled, PlayerStatReadRow::wicketsTaken);
+        int conceded = sum(bowled, PlayerStatReadRow::runsConceded);
+        int ballsBowled = sum(bowled, PlayerStatReadRow::ballsBowled);
 
         return new SeasonPlayerStatsDto(
-                season.getId(), season.getSeasonName(),
-                matchIds.size(), wonMatchIds.size(),
-                batted.size(), runs, round2(avg), round2(sr), highest, fifties, hundreds,
-                bowled.size(), wickets, round2(economy), round2(bowlingAvg),
-                catches, runOuts, stumpings, motmMatchIds.size()
+                any.seasonId(), any.seasonName(), matchIds.size(), wins,
+                batted.size(), runs,
+                round2(outs == 0 ? runs : (double) runs / outs),
+                round2(balls == 0 ? 0 : runs * 100.0 / balls),
+                batted.stream().mapToInt(PlayerStatReadRow::runsScored).max().orElse(0),
+                (int) batted.stream().filter(row -> row.runsScored() >= 50 && row.runsScored() < 100).count(),
+                (int) batted.stream().filter(row -> row.runsScored() >= 100).count(),
+                bowled.size(), wickets,
+                round2(ballsBowled == 0 ? 0 : conceded * 6.0 / ballsBowled),
+                round2(wickets == 0 ? 0 : (double) conceded / wickets),
+                sum(rows, PlayerStatReadRow::catchesTaken),
+                sum(rows, PlayerStatReadRow::runOuts),
+                sum(rows, PlayerStatReadRow::stumpings),
+                motm
         );
     }
 
-    private List<TeamStatsForPlayerDto> getByTeam(List<PlayerMatch> rows) {
-        Map<String, List<PlayerMatch>> byTeam = rows.stream().collect(Collectors.groupingBy(pm -> pm.getTeamRepresented().getId()));
-
-        return byTeam.values().stream()
-                .map(list -> computeTeamStatsForPlayer(list.get(0).getTeamRepresented(), list))
+    private List<TeamStatsForPlayerDto> getByTeam(List<PlayerStatReadRow> rows) {
+        return rows.stream()
+                .collect(Collectors.groupingBy(PlayerStatReadRow::teamId))
+                .values().stream()
+                .map(this::computeTeamStats)
                 .sorted(Comparator.comparing(TeamStatsForPlayerDto::matchesPlayed).reversed())
                 .toList();
     }
 
-    private TeamStatsForPlayerDto computeTeamStatsForPlayer(Team team, List<PlayerMatch> rows) {
-        Set<String> matchIds = rows.stream().map(pm -> pm.getMatch().getId()).collect(Collectors.toSet());
-        Set<String> wonMatchIds = rows.stream().filter(PlayerMatch::isMatchWon).map(pm -> pm.getMatch().getId()).collect(Collectors.toSet());
-
-        List<PlayerMatch> batted = rows.stream().filter(PlayerMatch::isBatted).toList();
-        List<PlayerMatch> bowled = rows.stream().filter(PlayerMatch::isBowled).toList();
-
-        int runs = sumInt(batted, PlayerMatch::getRunsScored);
-        int balls = sumInt(batted, PlayerMatch::getBallsFaced);
-        int outs = (int) batted.stream().filter(PlayerMatch::isOut).count();
-        int highest = batted.stream().mapToInt(PlayerMatch::getRunsScored).max().orElse(0);
-        double avg = outs == 0 ? runs : (double) runs / outs;
-        double sr = balls == 0 ? 0 : runs * 100.0 / balls;
-
-        int wickets = sumInt(bowled, PlayerMatch::getWicketsTaken);
-        int runsConceded = sumInt(bowled, PlayerMatch::getRunsConceded);
-        int ballsBowled = sumInt(bowled, PlayerMatch::getBallsBowled);
-        double economy = ballsBowled == 0 ? 0 : runsConceded / (ballsBowled / 6.0);
-        double bowlingAvg = wickets == 0 ? 0 : (double) runsConceded / wickets;
-
-        int catches = sumInt(rows, PlayerMatch::getCatchesTaken);
-        int runOuts = sumInt(rows, PlayerMatch::getRunOuts);
-        int stumpings = sumInt(rows, PlayerMatch::getStumpings);
-        int motm = (int) rows.stream().filter(PlayerMatch::isPlayerOfTheMatch).map(pm -> pm.getMatch().getId()).distinct().count();
+    private TeamStatsForPlayerDto computeTeamStats(List<PlayerStatReadRow> rows) {
+        PlayerStatReadRow any = rows.getFirst();
+        Set<String> matchIds = distinctMatches(rows);
+        int wins = (int) rows.stream().filter(PlayerStatReadRow::matchWon).map(PlayerStatReadRow::matchId).distinct().count();
+        int motm = (int) rows.stream().filter(PlayerStatReadRow::playerOfTheMatch).map(PlayerStatReadRow::matchId).distinct().count();
+        List<PlayerStatReadRow> batted = rows.stream().filter(PlayerStatReadRow::batted).toList();
+        List<PlayerStatReadRow> bowled = rows.stream().filter(PlayerStatReadRow::bowled).toList();
+        int runs = sum(batted, PlayerStatReadRow::runsScored);
+        int balls = sum(batted, PlayerStatReadRow::ballsFaced);
+        int outs = (int) batted.stream().filter(PlayerStatReadRow::out).count();
+        int wickets = sum(bowled, PlayerStatReadRow::wicketsTaken);
+        int conceded = sum(bowled, PlayerStatReadRow::runsConceded);
+        int ballsBowled = sum(bowled, PlayerStatReadRow::ballsBowled);
 
         return new TeamStatsForPlayerDto(
-                team.getId(), team.getTeamName(),
-                matchIds.size(), wonMatchIds.size(),
-                round2(matchIds.isEmpty() ? 0 : wonMatchIds.size() * 100.0 / matchIds.size()),
-                batted.size(), runs, round2(avg), round2(sr), highest,
-                bowled.size(), wickets, round2(economy), round2(bowlingAvg),
-                catches, runOuts, stumpings, motm
+                any.teamId(), any.teamName(), matchIds.size(), wins,
+                round2(matchIds.isEmpty() ? 0 : wins * 100.0 / matchIds.size()),
+                batted.size(), runs,
+                round2(outs == 0 ? runs : (double) runs / outs),
+                round2(balls == 0 ? 0 : runs * 100.0 / balls),
+                batted.stream().mapToInt(PlayerStatReadRow::runsScored).max().orElse(0),
+                bowled.size(), wickets,
+                round2(ballsBowled == 0 ? 0 : conceded * 6.0 / ballsBowled),
+                round2(wickets == 0 ? 0 : (double) conceded / wickets),
+                sum(rows, PlayerStatReadRow::catchesTaken),
+                sum(rows, PlayerStatReadRow::runOuts),
+                sum(rows, PlayerStatReadRow::stumpings),
+                motm
         );
     }
 
-    // =====================================================================
-    // Shared aggregate computations
-    // =====================================================================
-
-    private BattingStatsResponse computeBatting(String playerId, String playerName, List<PlayerMatch> rows) {
-        List<PlayerMatch> batted = rows.stream().filter(PlayerMatch::isBatted).toList();
-
-        int totalRuns = sumInt(batted, PlayerMatch::getRunsScored);
-        int totalBalls = sumInt(batted, PlayerMatch::getBallsFaced);
-        int fours = sumInt(batted, PlayerMatch::getFoursHit);
-        int sixes = sumInt(batted, PlayerMatch::getSixesHit);
-        int dotBalls = sumInt(batted, PlayerMatch::getDotBallsPlayed);
-        int notOuts = (int) batted.stream().filter(pm -> !pm.isOut()).count();
-        int innings = batted.size();
-        int outs = innings - notOuts;
-        double average = outs == 0 ? totalRuns : (double) totalRuns / outs;
-        double strikeRate = totalBalls == 0 ? 0 : totalRuns * 100.0 / totalBalls;
-        int highest = batted.stream().mapToInt(PlayerMatch::getRunsScored).max().orElse(0);
-        int ducks = (int) batted.stream().filter(pm -> pm.isOut() && pm.getRunsScored() == 0).count();
-        int matches = (int) rows.stream().map(pm -> pm.getMatch().getId()).distinct().count();
-
+    private BattingStatsResponse computeBatting(String playerId, String playerName, List<PlayerStatReadRow> rows) {
+        List<PlayerStatReadRow> batted = rows.stream().filter(PlayerStatReadRow::batted).toList();
+        int runs = sum(batted, PlayerStatReadRow::runsScored);
+        int balls = sum(batted, PlayerStatReadRow::ballsFaced);
+        int notOuts = (int) batted.stream().filter(row -> !row.out()).count();
+        int outs = batted.size() - notOuts;
         return new BattingStatsResponse(
-                playerId, playerName, totalRuns, totalBalls, round2(strikeRate), fours, sixes,
-                notOuts, round2(average), highest, ducks, matches, innings, dotBalls
+                playerId, playerName, runs, balls,
+                round2(balls == 0 ? 0 : runs * 100.0 / balls),
+                sum(batted, PlayerStatReadRow::foursHit),
+                sum(batted, PlayerStatReadRow::sixesHit),
+                notOuts,
+                round2(outs == 0 ? runs : (double) runs / outs),
+                batted.stream().mapToInt(PlayerStatReadRow::runsScored).max().orElse(0),
+                (int) batted.stream().filter(row -> row.out() && row.runsScored() == 0).count(),
+                distinctMatches(rows).size(),
+                batted.size(),
+                sum(batted, PlayerStatReadRow::dotBallsPlayed)
         );
     }
 
-    private BowlingStatsResponse computeBowling(String playerId, String playerName, List<PlayerMatch> rows) {
-        List<PlayerMatch> bowled = rows.stream().filter(PlayerMatch::isBowled).toList();
-
-        int wickets = sumInt(bowled, PlayerMatch::getWicketsTaken);
-        int runsConceded = sumInt(bowled, PlayerMatch::getRunsConceded);
-        int ballsBowled = sumInt(bowled, PlayerMatch::getBallsBowled);
-        int maidens = sumInt(bowled, PlayerMatch::getMaidensBowled);
-        int dotBalls = sumInt(bowled, PlayerMatch::getDotBallsBowled);
-        double economy = ballsBowled == 0 ? 0 : runsConceded * 6.0 / ballsBowled;
-        Double average = wickets == 0 ? null : round2((double) runsConceded / wickets);
-        int fiveWicketHauls = (int) bowled.stream().filter(pm -> pm.getWicketsTaken() >= 5).count();
-
-        Map<String, Integer> wicketsByMatch = bowled.stream().collect(Collectors.groupingBy(
-                pm -> pm.getMatch().getId(),
-                Collectors.summingInt(PlayerMatch::getWicketsTaken)
-        ));
-        int tenWicketHauls = (int) wicketsByMatch.values().stream().filter(w -> w >= 10).count();
-        int matches = (int) rows.stream().map(pm -> pm.getMatch().getId()).distinct().count();
-
-        BestBowlingFigures bestFigures = bowled.stream()
-                .max(Comparator.comparingInt(PlayerMatch::getWicketsTaken)
-                        .thenComparing(Comparator.comparingInt(PlayerMatch::getRunsConceded).reversed()))
-                .map(pm -> new BestBowlingFigures(pm.getWicketsTaken(), pm.getRunsConceded(), pm.getBallsBowled()))
+    private BowlingStatsResponse computeBowling(String playerId, String playerName, List<PlayerStatReadRow> rows) {
+        List<PlayerStatReadRow> bowled = rows.stream().filter(PlayerStatReadRow::bowled).toList();
+        int wickets = sum(bowled, PlayerStatReadRow::wicketsTaken);
+        int conceded = sum(bowled, PlayerStatReadRow::runsConceded);
+        int balls = sum(bowled, PlayerStatReadRow::ballsBowled);
+        Map<String, Integer> byMatch = bowled.stream().collect(Collectors.groupingBy(
+                PlayerStatReadRow::matchId, Collectors.summingInt(PlayerStatReadRow::wicketsTaken)));
+        BestBowlingFigures best = bowled.stream()
+                .max(Comparator.comparingInt(PlayerStatReadRow::wicketsTaken)
+                        .thenComparing(Comparator.comparingInt(PlayerStatReadRow::runsConceded).reversed()))
+                .map(row -> new BestBowlingFigures(row.wicketsTaken(), row.runsConceded(), row.ballsBowled()))
                 .orElse(null);
 
         return new BowlingStatsResponse(
-                playerId, playerName, wickets, runsConceded, round2(economy), toCricketOvers(ballsBowled),
-                maidens, average, bestFigures, fiveWicketHauls, tenWicketHauls, matches, bowled.size(), dotBalls
+                playerId, playerName, wickets, conceded,
+                round2(balls == 0 ? 0 : conceded * 6.0 / balls),
+                toCricketOvers(balls),
+                sum(bowled, PlayerStatReadRow::maidensBowled),
+                wickets == 0 ? null : round2((double) conceded / wickets),
+                best,
+                (int) bowled.stream().filter(row -> row.wicketsTaken() >= 5).count(),
+                (int) byMatch.values().stream().filter(value -> value >= 10).count(),
+                distinctMatches(rows).size(),
+                bowled.size(),
+                sum(bowled, PlayerStatReadRow::dotBallsBowled)
         );
     }
 
-    private FieldingAndMiscStatsResponse computeFielding(String playerId, String playerName, List<PlayerMatch> rows) {
-        int catches = sumInt(rows, PlayerMatch::getCatchesTaken);
-        int runOuts = sumInt(rows, PlayerMatch::getRunOuts);
-        int stumpings = sumInt(rows, PlayerMatch::getStumpings);
-        int matches = (int) rows.stream().map(pm -> pm.getMatch().getId()).distinct().count();
-        int motm = (int) rows.stream().filter(PlayerMatch::isPlayerOfTheMatch).map(pm -> pm.getMatch().getId()).distinct().count();
-
-        return new FieldingAndMiscStatsResponse(playerId, playerName, catches, runOuts, stumpings, matches, motm);
+    private FieldingAndMiscStatsResponse computeFielding(String playerId, String playerName, List<PlayerStatReadRow> rows) {
+        return new FieldingAndMiscStatsResponse(
+                playerId, playerName,
+                sum(rows, PlayerStatReadRow::catchesTaken),
+                sum(rows, PlayerStatReadRow::runOuts),
+                sum(rows, PlayerStatReadRow::stumpings),
+                distinctMatches(rows).size(),
+                (int) rows.stream().filter(PlayerStatReadRow::playerOfTheMatch).map(PlayerStatReadRow::matchId).distinct().count()
+        );
     }
 
-    // =====================================================================
-    // Helpers
-    // =====================================================================
-
-    private Map<String, List<PlayerMatch>> groupByPlayer(List<PlayerMatch> rows) {
-        return rows.stream().collect(Collectors.groupingBy(pm -> pm.getPlayer().getId()));
+    private Set<String> distinctMatches(List<PlayerStatReadRow> rows) {
+        return rows.stream().map(PlayerStatReadRow::matchId).collect(Collectors.toSet());
     }
 
-    private String playerId(List<PlayerMatch> rows) {
-        return rows.get(0).getPlayer().getId();
-    }
-
-    private String playerName(List<PlayerMatch> rows) {
-        return rows.get(0).getPlayer().getName();
-    }
-
-    private int sumInt(List<PlayerMatch> rows, java.util.function.ToIntFunction<PlayerMatch> mapper) {
+    private int sum(List<PlayerStatReadRow> rows, ToIntFunction<PlayerStatReadRow> mapper) {
         return rows.stream().mapToInt(mapper).sum();
     }
 
@@ -435,48 +328,5 @@ public class PlayerStatsService {
 
     private static double round2(double value) {
         return Math.round(value * 100.0) / 100.0;
-    }
-
-    private <T> List<T> applyLimit(List<T> list, Integer limit) {
-        int safeLimit = limit == null ? 50 : Math.max(1, Math.min(limit, 100));
-        return list.stream().limit(safeLimit).toList();
-    }
-
-    private Comparator<BattingStatsResponse> battingComparator(BattingSortBy sortBy) {
-        BattingSortBy sort = sortBy != null ? sortBy : BattingSortBy.RUNS;
-        Comparator<BattingStatsResponse> comparator = switch (sort) {
-            case AVERAGE -> Comparator.comparing(BattingStatsResponse::average);
-            case STRIKE_RATE -> Comparator.comparing(BattingStatsResponse::strikeRate);
-            case HIGHEST_SCORE -> Comparator.comparing(BattingStatsResponse::highestScore);
-            case FOURS -> Comparator.comparing(BattingStatsResponse::totalFours);
-            case SIXES -> Comparator.comparing(BattingStatsResponse::totalSixes);
-            case MATCHES -> Comparator.comparing(BattingStatsResponse::totalMatchesPlayed);
-            case RUNS -> Comparator.comparing(BattingStatsResponse::totalRuns);
-        };
-        return comparator.reversed();
-    }
-
-    private Comparator<BowlingStatsResponse> bowlingComparator(BowlingSortBy sortBy) {
-        BowlingSortBy sort = sortBy != null ? sortBy : BowlingSortBy.WICKETS;
-        return switch (sort) {
-            case WICKETS -> Comparator.comparing(BowlingStatsResponse::totalWickets).reversed();
-            case MATCHES -> Comparator.comparing(BowlingStatsResponse::totalMatchesPlayed).reversed();
-            // Lower economy/average is better, so ascending order for these.
-            case ECONOMY -> Comparator.comparing(BowlingStatsResponse::economyRate);
-            case AVERAGE -> Comparator.comparing(BowlingStatsResponse::average, Comparator.nullsLast(Comparator.naturalOrder()));
-        };
-    }
-
-    private Comparator<FieldingAndMiscStatsResponse> fieldingComparator(FieldingSortBy sortBy) {
-        FieldingSortBy sort = sortBy != null ? sortBy : FieldingSortBy.DISMISSALS;
-        return switch (sort) {
-            case CATCHES -> Comparator.comparing(FieldingAndMiscStatsResponse::totalCatches).reversed();
-            case RUN_OUTS -> Comparator.comparing(FieldingAndMiscStatsResponse::totalRunOuts).reversed();
-            case STUMPINGS -> Comparator.comparing(FieldingAndMiscStatsResponse::totalStumpings).reversed();
-            case MAN_OF_THE_MATCH -> Comparator.comparing(FieldingAndMiscStatsResponse::manOfTheMatchAwards).reversed();
-            case DISMISSALS -> Comparator.comparing(
-                    (FieldingAndMiscStatsResponse r) -> r.totalCatches() + r.totalRunOuts() + r.totalStumpings()
-            ).reversed();
-        };
     }
 }

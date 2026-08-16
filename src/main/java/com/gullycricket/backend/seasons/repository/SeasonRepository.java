@@ -15,7 +15,7 @@ public interface SeasonRepository extends JpaRepository<Season, String> {
 
     Optional<Season> findFirstBySeasonNameIgnoreCase(String seasonName);
 
-    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Modifying(flushAutomatically = true)
     @Query("UPDATE Season s SET s.matchesPlayed = s.matchesPlayed + 1 WHERE s.id = :seasonId")
     int incrementMatchesPlayed(@Param("seasonId") String seasonId);
 }

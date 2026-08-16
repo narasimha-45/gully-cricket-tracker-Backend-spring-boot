@@ -2,16 +2,17 @@ package com.gullycricket.backend.seasons.service;
 
 import com.gullycricket.backend.common.exception.BadRequestException;
 import com.gullycricket.backend.common.exception.ResourceNotFoundException;
-import com.gullycricket.backend.matches.entity.Match;
-import com.gullycricket.backend.matches.entity.MatchInningsSummary;
-import com.gullycricket.backend.matches.repository.MatchRepository;
+import com.gullycricket.backend.config.CacheNames;
+import com.gullycricket.backend.matches.repository.read.MatchSummaryReadRepository;
+import com.gullycricket.backend.matches.repository.read.MatchSummaryRow;
 import com.gullycricket.backend.seasons.dto.MatchResponseDto;
 import com.gullycricket.backend.seasons.dto.SeasonSearchDto;
 import com.gullycricket.backend.seasons.entity.Season;
 import com.gullycricket.backend.seasons.repository.SeasonRepository;
-import com.gullycricket.backend.teams.entity.Team;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,9 +25,10 @@ import java.util.List;
 public class SeasonService {
 
     private final SeasonRepository seasonRepository;
-    private final MatchRepository matchRepository;
+    private final MatchSummaryReadRepository matchSummaryReadRepository;
 
     @Transactional(readOnly = true)
+    @Cacheable(CacheNames.ALL_SEASONS)
     public List<Season> getAllSeasons() {
         return seasonRepository.findAll();
     }
@@ -46,6 +48,7 @@ public class SeasonService {
         return seasonRepository.findFirstBySeasonNameIgnoreCase(seasonName.trim()).orElse(null);
     }
 
+    @CacheEvict(value = CacheNames.ALL_SEASONS, allEntries = true)
     public Season createSeason(String seasonName) {
         if (seasonName == null || seasonName.isBlank()) {
             throw new BadRequestException("Season name is required");
@@ -56,6 +59,7 @@ public class SeasonService {
         return seasonRepository.save(season);
     }
 
+    @CacheEvict(value = CacheNames.ALL_SEASONS, allEntries = true)
     public Season updateSeason(Season season) {
         if (season == null || season.getId() == null) {
             throw new BadRequestException("Season id is required");
@@ -70,12 +74,24 @@ public class SeasonService {
         return seasonRepository.save(season);
     }
 
-    @Transactional(readOnly = true)
-    public List<MatchResponseDto> getAllMatchesBySeasonId(String seasonId) {
-        if (!seasonRepository.existsById(seasonId)) {
+
+    @Transactional
+    @CacheEvict(value = CacheNames.ALL_SEASONS, allEntries = true)
+    public void incrementMatchesPlayed(String seasonId) {
+        int updated = seasonRepository.incrementMatchesPlayed(seasonId);
+        if (updated == 0) {
             throw new ResourceNotFoundException("Season not found with ID: " + seasonId);
         }
-        return matchRepository.findBySeason_Id(seasonId).stream()
+    }
+
+    public List<MatchResponseDto> getAllMatchesBySeasonId(String seasonId) {
+        List<MatchSummaryRow> matches = matchSummaryReadRepository.findBySeasonId(seasonId);
+        // Active seasons normally have matches, so avoid paying an extra EXISTS round trip
+        // on every request. We only verify the season when the read model is empty.
+        if (matches.isEmpty() && !seasonRepository.existsById(seasonId)) {
+            throw new ResourceNotFoundException("Season not found with ID: " + seasonId);
+        }
+        return matches.stream()
                 .map(this::matchToResponseDtoMatch)
                 .toList();
     }
@@ -95,64 +111,38 @@ public class SeasonService {
         return new SeasonSearchDto(season.getId(), season.getSeasonName(), season.getMatchesPlayed());
     }
 
-    private MatchResponseDto matchToResponseDtoMatch(Match match) {
-        Team battingFirstTeam = match.getBattingFirstTeam();
-        boolean modelTeamAIsBattingFirst = battingFirstTeam != null && battingFirstTeam.equals(match.getTeamA());
+    private MatchResponseDto matchToResponseDtoMatch(MatchSummaryRow match) {
+        boolean teamAIsBattingFirst = match.battingFirstTeamId() != null
+                && match.battingFirstTeamId().equals(match.teamAId());
 
-        Team displayTeamA = modelTeamAIsBattingFirst ? match.getTeamA() : match.getTeamB();
-        Team displayTeamB = modelTeamAIsBattingFirst ? match.getTeamB() : match.getTeamA();
+        String displayTeamAName = teamAIsBattingFirst ? match.teamAName() : match.teamBName();
+        int displayTeamARuns = teamAIsBattingFirst ? match.teamARuns() : match.teamBRuns();
+        int displayTeamAWickets = teamAIsBattingFirst ? match.teamAWickets() : match.teamBWickets();
+        int displayTeamABalls = teamAIsBattingFirst ? match.teamABalls() : match.teamBBalls();
 
-        TeamAggregate first = aggregateForTeam(match, displayTeamA);
-        TeamAggregate second = aggregateForTeam(match, displayTeamB);
-
-        String winnerTeamName = match.getWinnerTeam() != null ? match.getWinnerTeam().getTeamName() : null;
+        String displayTeamBName = teamAIsBattingFirst ? match.teamBName() : match.teamAName();
+        int displayTeamBRuns = teamAIsBattingFirst ? match.teamBRuns() : match.teamARuns();
+        int displayTeamBWickets = teamAIsBattingFirst ? match.teamBWickets() : match.teamAWickets();
+        int displayTeamBBalls = teamAIsBattingFirst ? match.teamBBalls() : match.teamABalls();
 
         return new MatchResponseDto(
-                match.getId(),
-                match.getSeason().getId(),
-                displayTeamA.getTeamName(),
-                first.runs(),
-                first.wickets(),
-                displayTeamB.getTeamName(),
-                second.runs(),
-                second.wickets(),
-                winnerTeamName,
-                match.getSuperOver(),
-                match.getWonBy(),
-                match.getCompletedAt(),
-                match.getStatus(),
-                first.balls(),
-                second.balls(),
-                match.getTotalOvers()
+                match.matchId(),
+                match.seasonId(),
+                displayTeamAName,
+                displayTeamARuns,
+                displayTeamAWickets,
+                displayTeamBName,
+                displayTeamBRuns,
+                displayTeamBWickets,
+                match.winnerTeamName(),
+                match.superOver(),
+                match.wonBy(),
+                match.completedAt(),
+                match.status(),
+                displayTeamABalls,
+                displayTeamBBalls,
+                match.totalOvers()
         );
     }
 
-    /**
-     * MatchInningsSummary is the canonical score model. Fallback to legacy flat
-     * fields keeps previously saved limited-over matches readable.
-     */
-    private TeamAggregate aggregateForTeam(Match match, Team team) {
-        List<MatchInningsSummary> summaries = match.getInningsSummaries().stream()
-                .filter(i -> !i.isSuperOver() && i.getBattingTeam().getId().equals(team.getId()))
-                .toList();
-
-        if (!summaries.isEmpty()) {
-            return new TeamAggregate(
-                    summaries.stream().mapToInt(MatchInningsSummary::getRuns).sum(),
-                    summaries.stream().mapToInt(MatchInningsSummary::getWickets).sum(),
-                    summaries.stream().mapToInt(MatchInningsSummary::getBalls).sum()
-            );
-        }
-
-        boolean isModelTeamA = match.getTeamA().getId().equals(team.getId());
-        return isModelTeamA
-                ? new TeamAggregate(nvl(match.getTeamAScore()), nvl(match.getTeamAWickets()), nvl(match.getTeamABallsFaced()))
-                : new TeamAggregate(nvl(match.getTeamBScore()), nvl(match.getTeamBWickets()), nvl(match.getTeamBBallsFaced()));
-    }
-
-    private int nvl(Integer value) {
-        return value == null ? 0 : value;
-    }
-
-    private record TeamAggregate(int runs, int wickets, int balls) {}
 }

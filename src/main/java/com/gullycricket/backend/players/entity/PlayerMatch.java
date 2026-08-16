@@ -17,9 +17,8 @@ import lombok.Setter;
                 @UniqueConstraint(columnNames = {"player_id", "match_id", "team_represented_id", "innings_number"})
         },
         indexes = {
-                // Every one of these is a filter column in PlayerMatchSpecifications —
-                // without an index Postgres has to sequentially scan player_matches for
-                // every leaderboard/profile request.
+                // Common analytics filter columns. Flyway adds additional partial/composite
+                // indexes tailored to the JDBC leaderboard read paths.
                 @Index(name = "idx_player_matches_player_id", columnList = "player_id"),
                 @Index(name = "idx_player_matches_season_id", columnList = "season_id"),
                 @Index(name = "idx_player_matches_team_represented_id", columnList = "team_represented_id"),

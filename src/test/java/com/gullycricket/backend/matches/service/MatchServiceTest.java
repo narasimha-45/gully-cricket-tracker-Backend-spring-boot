@@ -7,6 +7,7 @@ import com.gullycricket.backend.matches.entity.MatchType;
 import com.gullycricket.backend.matches.repository.MatchRepository;
 import com.gullycricket.backend.seasons.entity.Season;
 import com.gullycricket.backend.seasons.repository.SeasonRepository;
+import com.gullycricket.backend.seasons.service.SeasonService;
 import com.gullycricket.backend.teams.entity.Team;
 import com.gullycricket.backend.teams.service.TeamService;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,6 +32,7 @@ class MatchServiceTest {
     @Mock SeasonRepository seasonRepository;
     @Mock ProcessPlayerStatsService processPlayerStatsService;
     @Mock TeamService teamService;
+    @Mock SeasonService seasonService;
 
     private MatchService matchService;
     private Season season;
@@ -43,7 +45,8 @@ class MatchServiceTest {
                 new ObjectMapper(),
                 processPlayerStatsService,
                 teamService,
-                new MatchValidator()
+                new MatchValidator(),
+                seasonService
         );
         season = new Season();
         season.setId("season-1");
@@ -52,6 +55,7 @@ class MatchServiceTest {
 
         lenient().when(seasonRepository.findById("season-1")).thenReturn(Optional.of(season));
         lenient().when(teamService.getTeamByName(anyString())).thenReturn(null);
+        lenient().when(teamService.getTeamsByNames(any())).thenReturn(List.of());
         lenient().when(teamService.saveTeam(any(Team.class))).thenAnswer(invocation -> {
             Team team = invocation.getArgument(0);
             if (team.getId() == null) {
@@ -64,7 +68,6 @@ class MatchServiceTest {
             match.setId("match-1");
             return match;
         });
-        lenient().when(seasonRepository.incrementMatchesPlayed("season-1")).thenReturn(1);
     }
 
     @Test
@@ -80,7 +83,7 @@ class MatchServiceTest {
         assertThat(saved.getInningsSummaries()).hasSize(2);
         assertThat(saved.getInningsSummaries().get(0).getSequenceNumber()).isEqualTo(1);
         assertThat(saved.getBattingFirstTeam().getTeamName()).isEqualTo("eagles");
-        verify(seasonRepository).incrementMatchesPlayed("season-1");
+        verify(seasonService).incrementMatchesPlayed("season-1");
     }
 
     @Test

@@ -26,7 +26,7 @@ public class CorsConfig {
                         .allowedOrigins(origins)
                         .allowedMethods("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS")
                         .allowedHeaders("Content-Type", "Authorization", "Idempotency-Key", "X-Request-Id", "X-API-Key")
-                        .exposedHeaders("X-Request-Id", "X-API-Key")
+                        .exposedHeaders("X-Request-Id", "X-Response-Time-Ms", "Server-Timing")
                         .allowCredentials(true)
                         .maxAge(3600);
             }

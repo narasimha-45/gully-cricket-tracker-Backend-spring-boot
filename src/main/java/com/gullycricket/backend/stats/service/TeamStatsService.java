@@ -1,11 +1,8 @@
 package com.gullycricket.backend.stats.service;
 
 import com.gullycricket.backend.common.exception.ResourceNotFoundException;
-import com.gullycricket.backend.matches.entity.Match;
-import com.gullycricket.backend.matches.entity.MatchInningsSummary;
-import com.gullycricket.backend.matches.entity.MatchStatus;
-import com.gullycricket.backend.matches.repository.MatchRepository;
-import com.gullycricket.backend.seasons.entity.Season;
+import com.gullycricket.backend.matches.repository.read.MatchSummaryReadRepository;
+import com.gullycricket.backend.matches.repository.read.MatchSummaryRow;
 import com.gullycricket.backend.stats.dto.NotableMatchDto;
 import com.gullycricket.backend.stats.dto.TeamLeaderboardEntryDto;
 import com.gullycricket.backend.stats.dto.TeamProfileDto;
@@ -16,7 +13,6 @@ import com.gullycricket.backend.teams.entity.Team;
 import com.gullycricket.backend.teams.repository.TeamRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -27,32 +23,29 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-@Transactional(readOnly = true)
 public class TeamStatsService {
 
-    private final MatchRepository matchRepository;
+    private final MatchSummaryReadRepository matchSummaryReadRepository;
     private final TeamRepository teamRepository;
 
-    // =====================================================================
-    // Team profile
-    // =====================================================================
-
     public TeamProfileDto getTeamProfile(String teamId, String seasonId) {
-        Team team = teamRepository.findById(teamId)
-                .orElseThrow(() -> new ResourceNotFoundException("Team not found: " + teamId));
-        String teamName = team.getTeamName();
+        List<MatchSummaryRow> rows = matchSummaryReadRepository.findCompletedForTeam(teamId, seasonId);
+        String teamName;
+        if (rows.isEmpty()) {
+            // Only pay the existence lookup for a team with no completed matches.
+            Team team = teamRepository.findById(teamId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Team not found: " + teamId));
+            teamName = team.getTeamName();
+        } else {
+            MatchSummaryRow first = rows.getFirst();
+            teamName = first.teamAId().equals(teamId) ? first.teamAName() : first.teamBName();
+        }
 
-        List<Match> matches = seasonId != null
-                ? matchRepository.findCompletedMatchesForTeamAndSeason(teamId, seasonId, MatchStatus.COMPLETED)
-                : matchRepository.findCompletedMatchesForTeam(teamId, MatchStatus.COMPLETED);
-
-        List<NotableMatchDto> notable = matches.stream()
-                .map(m -> toNotableMatch(m, teamId))
-                .sorted(Comparator.comparing(NotableMatchDto::completedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+        List<NotableMatchDto> notable = rows.stream()
+                .map(row -> toNotableMatch(row, teamId))
                 .toList();
 
         TeamRecord record = computeRecord(notable);
-
         Map<String, List<NotableMatchDto>> bySeasonRaw = notable.stream()
                 .collect(Collectors.groupingBy(NotableMatchDto::seasonId));
 
@@ -74,10 +67,45 @@ public class TeamStatsService {
         );
     }
 
+    public List<TeamLeaderboardEntryDto> getTeamLeaderboard(String seasonId, TeamSortBy sortBy, Integer limit) {
+        List<MatchSummaryRow> allMatches = matchSummaryReadRepository.findCompleted(seasonId);
+        Map<String, List<MatchSummaryRow>> matchesByTeamId = new HashMap<>();
+        Map<String, String> teamNames = new HashMap<>();
+
+        for (MatchSummaryRow match : allMatches) {
+            matchesByTeamId.computeIfAbsent(match.teamAId(), ignored -> new ArrayList<>()).add(match);
+            matchesByTeamId.computeIfAbsent(match.teamBId(), ignored -> new ArrayList<>()).add(match);
+            teamNames.put(match.teamAId(), match.teamAName());
+            teamNames.put(match.teamBId(), match.teamBName());
+        }
+
+        List<TeamLeaderboardEntryDto> entries = matchesByTeamId.entrySet().stream()
+                .map(entry -> {
+                    String teamId = entry.getKey();
+                    List<NotableMatchDto> notable = entry.getValue().stream()
+                            .map(row -> toNotableMatch(row, teamId))
+                            .toList();
+                    TeamRecord record = computeRecord(notable);
+                    return new TeamLeaderboardEntryDto(
+                            teamId, teamNames.get(teamId),
+                            record.matchesPlayed, record.wins, record.losses, record.ties, record.noResults, record.winPercentage(),
+                            record.wonBattingFirst, record.wonChasing,
+                            record.highestScore != null ? record.highestScore.teamScore() : null,
+                            record.lowestDefended != null ? record.lowestDefended.teamScore() : null,
+                            record.highestChased != null ? record.highestChased.teamScore() : null,
+                            record.totalRunsScored, record.totalRunsConceded
+                    );
+                })
+                .collect(Collectors.toCollection(ArrayList::new));
+
+        entries.sort(teamComparator(sortBy));
+        int safeLimit = limit == null ? 50 : Math.max(1, Math.min(limit, 100));
+        return entries.stream().limit(safeLimit).toList();
+    }
+
     private TeamSeasonStatsDto computeSeasonStats(List<NotableMatchDto> seasonMatches) {
         TeamRecord record = computeRecord(seasonMatches);
-        NotableMatchDto any = seasonMatches.get(0);
-
+        NotableMatchDto any = seasonMatches.getFirst();
         return new TeamSeasonStatsDto(
                 any.seasonId(), any.seasonName(),
                 record.matchesPlayed, record.wins, record.losses, record.ties, record.noResults, record.winPercentage(),
@@ -90,50 +118,33 @@ public class TeamStatsService {
         );
     }
 
-    // =====================================================================
-    // Team leaderboard
-    // =====================================================================
+    private NotableMatchDto toNotableMatch(MatchSummaryRow match, String teamId) {
+        boolean isTeamA = match.teamAId().equals(teamId);
+        String opponentId = isTeamA ? match.teamBId() : match.teamAId();
+        String opponentName = isTeamA ? match.teamBName() : match.teamAName();
+        int teamScore = isTeamA ? match.teamARuns() : match.teamBRuns();
+        int teamWickets = isTeamA ? match.teamAWickets() : match.teamBWickets();
+        int opponentScore = isTeamA ? match.teamBRuns() : match.teamARuns();
+        int opponentWickets = isTeamA ? match.teamBWickets() : match.teamAWickets();
+        boolean battingFirst = teamId.equals(match.battingFirstTeamId());
 
-    public List<TeamLeaderboardEntryDto> getTeamLeaderboard(String seasonId, TeamSortBy sortBy, Integer limit) {
-        List<Team> teams = teamRepository.findAll();
-
-        // ONE query for every completed match (optionally scoped to a season),
-        // instead of the previous one-query-per-team loop. Matches are then grouped
-        // by team id in memory — this is what keeps the leaderboard fast as the
-        // number of teams grows.
-        List<Match> allMatches = seasonId != null
-                ? matchRepository.findByStatusAndSeasonWithInnings(MatchStatus.COMPLETED, seasonId)
-                : matchRepository.findByStatusWithInnings(MatchStatus.COMPLETED);
-
-        Map<String, List<Match>> matchesByTeamId = new HashMap<>();
-        for (Match match : allMatches) {
-            matchesByTeamId.computeIfAbsent(match.getTeamA().getId(), k -> new ArrayList<>()).add(match);
-            matchesByTeamId.computeIfAbsent(match.getTeamB().getId(), k -> new ArrayList<>()).add(match);
+        MatchResult result;
+        if (match.matchTied()) {
+            result = MatchResult.TIE;
+        } else if (match.matchDrawn() || match.winnerTeamId() == null) {
+            result = MatchResult.NO_RESULT;
+        } else if (teamId.equals(match.winnerTeamId())) {
+            result = MatchResult.WIN;
+        } else {
+            result = MatchResult.LOSS;
         }
 
-        List<TeamLeaderboardEntryDto> entries = teams.stream()
-                .map(team -> {
-                    List<Match> matches = matchesByTeamId.getOrDefault(team.getId(), List.of());
-
-                    List<NotableMatchDto> notable = matches.stream().map(m -> toNotableMatch(m, team.getId())).toList();
-                    TeamRecord record = computeRecord(notable);
-
-                    return new TeamLeaderboardEntryDto(
-                            team.getId(), team.getTeamName(),
-                            record.matchesPlayed, record.wins, record.losses, record.ties, record.noResults, record.winPercentage(),
-                            record.wonBattingFirst, record.wonChasing,
-                            record.highestScore != null ? record.highestScore.teamScore() : null,
-                            record.lowestDefended != null ? record.lowestDefended.teamScore() : null,
-                            record.highestChased != null ? record.highestChased.teamScore() : null,
-                            record.totalRunsScored, record.totalRunsConceded
-                    );
-                })
-                .filter(e -> e.matchesPlayed() > 0)
-                .collect(Collectors.toCollection(ArrayList::new));
-
-        entries.sort(teamComparator(sortBy));
-        int safeLimit = limit == null ? 50 : Math.max(1, Math.min(limit, 100));
-        return entries.stream().limit(safeLimit).toList();
+        return new NotableMatchDto(
+                match.matchId(), match.seasonId(), match.seasonName(),
+                opponentId, opponentName,
+                teamScore, teamWickets, opponentScore, opponentWickets,
+                match.totalOvers(), battingFirst, result, match.completedAt()
+        );
     }
 
     private Comparator<TeamLeaderboardEntryDto> teamComparator(TeamSortBy sortBy) {
@@ -150,51 +161,9 @@ public class TeamStatsService {
         };
     }
 
-    // =====================================================================
-    // Shared record computation
-    // =====================================================================
-
-    private NotableMatchDto toNotableMatch(Match match, String teamId) {
-        boolean isTeamA = match.getTeamA().getId().equals(teamId);
-        Team opponent = isTeamA ? match.getTeamB() : match.getTeamA();
-        TeamScore teamTotals = scoreForTeam(match, isTeamA ? match.getTeamA() : match.getTeamB());
-        TeamScore opponentTotals = scoreForTeam(match, opponent);
-        int teamScore = teamTotals.runs();
-        int teamWickets = teamTotals.wickets();
-        int opponentScore = opponentTotals.runs();
-        int opponentWickets = opponentTotals.wickets();
-
-        boolean battingFirst = match.getBattingFirstTeam() != null && match.getBattingFirstTeam().getId().equals(teamId);
-
-        MatchResult result;
-        if (Boolean.TRUE.equals(match.getIsMatchTied())) {
-            result = MatchResult.TIE;
-        } else if (Boolean.TRUE.equals(match.getIsMatchDrawn())) {
-            result = MatchResult.NO_RESULT;
-        } else if (match.getWinnerTeam() == null) {
-            result = MatchResult.NO_RESULT;
-        } else if (match.getWinnerTeam().getId().equals(teamId)) {
-            result = MatchResult.WIN;
-        } else {
-            result = MatchResult.LOSS;
-        }
-
-        Season season = match.getSeason();
-
-        return new NotableMatchDto(
-                match.getId(),
-                season != null ? season.getId() : null,
-                season != null ? season.getSeasonName() : null,
-                opponent.getId(), opponent.getTeamName(),
-                teamScore, teamWickets, opponentScore, opponentWickets,
-                match.getTotalOvers(), battingFirst, result, match.getCompletedAt()
-        );
-    }
-
     private TeamRecord computeRecord(List<NotableMatchDto> matches) {
         TeamRecord r = new TeamRecord();
         r.matchesPlayed = matches.size();
-
         for (NotableMatchDto m : matches) {
             switch (m.result()) {
                 case WIN -> r.wins++;
@@ -221,65 +190,30 @@ public class TeamStatsService {
                 }
             }
 
-            if (r.highestScore == null || m.teamScore() > r.highestScore.teamScore()) {
-                r.highestScore = m;
-            }
-            if (r.lowestScore == null || m.teamScore() < r.lowestScore.teamScore()) {
-                r.lowestScore = m;
-            }
-
+            if (r.highestScore == null || m.teamScore() > r.highestScore.teamScore()) r.highestScore = m;
+            if (r.lowestScore == null || m.teamScore() < r.lowestScore.teamScore()) r.lowestScore = m;
             r.totalRunsScored += m.teamScore();
             r.totalRunsConceded += m.opponentScore();
         }
-
         return r;
-    }
-
-
-    private TeamScore scoreForTeam(Match match, Team team) {
-        List<MatchInningsSummary> innings = match.getInningsSummaries().stream()
-                .filter(i -> !i.isSuperOver() && i.getBattingTeam().getId().equals(team.getId()))
-                .toList();
-        if (!innings.isEmpty()) {
-            return new TeamScore(
-                    innings.stream().mapToInt(MatchInningsSummary::getRuns).sum(),
-                    innings.stream().mapToInt(MatchInningsSummary::getWickets).sum()
-            );
-        }
-        boolean modelTeamA = match.getTeamA().getId().equals(team.getId());
-        return modelTeamA
-                ? new TeamScore(nullToZero(match.getTeamAScore()), nullToZero(match.getTeamAWickets()))
-                : new TeamScore(nullToZero(match.getTeamBScore()), nullToZero(match.getTeamBWickets()));
-    }
-
-    private record TeamScore(int runs, int wickets) {}
-
-    private int nullToZero(Integer value) {
-        return value != null ? value : 0;
     }
 
     private static double round2(double value) {
         return Math.round(value * 100.0) / 100.0;
     }
 
-    /**
-     * Mutable accumulator used only while folding over a team's matches.
-     */
     private static class TeamRecord {
-        int matchesPlayed = 0;
-        int wins = 0;
-        int losses = 0;
-        int ties = 0;
-        int noResults = 0;
-
-        int battedFirst = 0;
-        int wonBattingFirst = 0;
-        int battedSecond = 0;
-        int wonChasing = 0;
-
-        int totalRunsScored = 0;
-        int totalRunsConceded = 0;
-
+        int matchesPlayed;
+        int wins;
+        int losses;
+        int ties;
+        int noResults;
+        int battedFirst;
+        int wonBattingFirst;
+        int battedSecond;
+        int wonChasing;
+        int totalRunsScored;
+        int totalRunsConceded;
         NotableMatchDto highestScore;
         NotableMatchDto lowestScore;
         NotableMatchDto lowestDefended;

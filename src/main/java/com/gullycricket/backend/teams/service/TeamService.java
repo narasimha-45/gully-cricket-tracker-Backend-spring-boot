@@ -1,10 +1,13 @@
 package com.gullycricket.backend.teams.service;
 
 import com.gullycricket.backend.common.util.NameNormalizer;
+import com.gullycricket.backend.config.CacheNames;
 import com.gullycricket.backend.teams.dto.TeamSearchSuggestionDto;
 import com.gullycricket.backend.teams.entity.Team;
 import com.gullycricket.backend.teams.repository.TeamRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,12 +36,27 @@ public class TeamService {
         return teamRepository.findByTeamName(NameNormalizer.normalize(name));
     }
 
+    @Transactional(readOnly = true)
+    public List<Team> getTeamsByNames(List<String> names) {
+        List<String> canonicalNames = names.stream().map(NameNormalizer::normalize).distinct().toList();
+        return canonicalNames.isEmpty() ? List.of() : teamRepository.findByTeamNameIn(canonicalNames);
+    }
+
+    @CacheEvict(value = {CacheNames.ALL_TEAMS, CacheNames.SEASON_TEAMS}, allEntries = true)
     public Team saveTeam(Team team) {
         team.setTeamName(NameNormalizer.normalize(team.getTeamName()));
         return teamRepository.save(team);
     }
 
+
+    @Transactional
+    @CacheEvict(value = CacheNames.SEASON_TEAMS, allEntries = true)
+    public void ensureTeamInSeason(String teamId, String seasonId) {
+        teamRepository.addSeasonMembership(teamId, seasonId);
+    }
+
     @Transactional(readOnly = true)
+    @Cacheable(CacheNames.ALL_TEAMS)
     public List<TeamSearchSuggestionDto> getAllTeams() {
         return teamRepository.findAll().stream()
                 .map(team -> new TeamSearchSuggestionDto(team.getId(), team.getTeamName()))
@@ -46,6 +64,7 @@ public class TeamService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(value = CacheNames.SEASON_TEAMS, key = "#seasonId")
     public List<TeamSearchSuggestionDto> getTeamsBySeasonId(String seasonId) {
         return teamRepository.findDistinctBySeasonsPlayed_Id(seasonId).stream()
                 .map(team -> new TeamSearchSuggestionDto(team.getId(), team.getTeamName()))

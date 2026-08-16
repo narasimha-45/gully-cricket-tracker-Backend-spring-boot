@@ -13,7 +13,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -38,15 +37,11 @@ public class PlayerTeamService {
 
     @Transactional(readOnly = true)
     public Set<String> findExistingPlayerNamesByTeamAndSeason(Team team, Season season) {
-        return playerTeamRepository.findByTeamAndSeason(team, season).stream()
-                .map(pt -> pt.getPlayer().getName())
-                .collect(Collectors.toSet());
+        return playerTeamRepository.findPlayerNamesByTeamAndSeason(team.getId(), season.getId());
     }
 
     @Transactional(readOnly = true)
     public List<TeamSeasonPlayerDto> getPlayersByTeamAndSeason(String teamId, String seasonId) {
-        return playerTeamRepository.getPlayersByTeam_IdAndSeason_Id(teamId, seasonId).stream()
-                .map(pt -> new TeamSeasonPlayerDto(pt.getPlayer().getId(), pt.getPlayer().getName()))
-                .toList();
+        return playerTeamRepository.findRoster(teamId, seasonId);
     }
 }

@@ -12,7 +12,6 @@ import com.gullycricket.backend.players.service.PlayerService;
 import com.gullycricket.backend.seasons.entity.Season;
 import com.gullycricket.backend.seasons.entity.SeasonPlayer;
 import com.gullycricket.backend.seasons.repository.SeasonPlayerRepository;
-import com.gullycricket.backend.seasons.service.SeasonService;
 import com.gullycricket.backend.teams.entity.PlayerTeam;
 import com.gullycricket.backend.teams.entity.Team;
 import com.gullycricket.backend.teams.service.PlayerTeamService;
@@ -29,7 +28,6 @@ import java.util.stream.Collectors;
 @Service
 public class ProcessPlayerStatsService {
 
-    private final SeasonService seasonService;
     private final TeamService teamService;
     private final PlayerService playerService;
     private final PlayerTeamService playerTeamService;
@@ -39,7 +37,9 @@ public class ProcessPlayerStatsService {
     private final PlayerRivalryRepository playerRivalryRepository;
 
     public void processPlayerStats(Match match, MatchDataDto matchData) {
-        Season season = seasonService.getSeasonById(matchData.seasonId());
+        // MatchService already loaded the managed Season for this transaction. Reusing it
+        // avoids another remote DB round trip during match completion.
+        Season season = match.getSeason();
         ProcessingContext ctx = createContext(match, matchData, season);
 
         processTeams(ctx, matchData.teams());
@@ -84,13 +84,19 @@ public class ProcessPlayerStatsService {
 
     private void processSingleTeam(ProcessingContext ctx, TeamDto teamDto) {
         String teamName = canonical(teamDto.name());
-        Team team = teamService.getTeamByName(teamName);
+
+        // MatchService has already resolved and persisted both teams. Reuse those
+        // managed entities instead of performing another find + save for each team.
+        Team team = matchTeam(ctx.match(), teamName);
         if (team == null) {
-            team = new Team();
-            team.setTeamName(teamName);
+            team = teamService.getTeamByName(teamName);
+            if (team == null) {
+                team = new Team();
+                team.setTeamName(teamName);
+                team.getSeasonsPlayed().add(ctx.season());
+                team = teamService.saveTeam(team);
+            }
         }
-        team.getSeasonsPlayed().add(ctx.season());
-        team = teamService.saveTeam(team);
         ctx.teamMap().put(teamName, team);
 
         Set<String> existingPlayerNames = playerTeamService.findExistingPlayerNamesByTeamAndSeason(team, ctx.season());
@@ -113,6 +119,16 @@ public class ProcessPlayerStatsService {
                 ctx.playerTeams().add(playerTeam);
             }
         }
+    }
+
+    private Team matchTeam(Match match, String canonicalTeamName) {
+        if (match.getTeamA() != null && canonical(match.getTeamA().getTeamName()).equals(canonicalTeamName)) {
+            return match.getTeamA();
+        }
+        if (match.getTeamB() != null && canonical(match.getTeamB().getTeamName()).equals(canonicalTeamName)) {
+            return match.getTeamB();
+        }
+        return null;
     }
 
     private void processBattingStats(ProcessingContext ctx, List<InningsDto> innings) {
@@ -462,9 +478,18 @@ public class ProcessPlayerStatsService {
     }
 
     private void saveAllProcessedStats(ProcessingContext ctx) {
-        List<Player> savedPlayers = playerService.saveAllPlayers(new ArrayList<>(ctx.playerMap().values()));
+        List<Player> newPlayers = ctx.playerMap().values().stream()
+                .filter(player -> player.getId() == null)
+                .toList();
+        if (!newPlayers.isEmpty()) {
+            playerService.saveAllPlayers(newPlayers);
+        }
 
-        List<SeasonPlayer> newSeasonPlayers = savedPlayers.stream()
+        // Existing players were loaded in the current transaction and new players now
+        // have generated ids, so there is no reason to merge every squad member again.
+        List<Player> allPlayers = new ArrayList<>(ctx.playerMap().values());
+
+        List<SeasonPlayer> newSeasonPlayers = allPlayers.stream()
                 .filter(p -> !ctx.seasonPlayerIds().contains(p.getId()))
                 .map(p -> {
                     SeasonPlayer sp = new SeasonPlayer();
