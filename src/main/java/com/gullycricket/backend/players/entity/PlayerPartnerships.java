@@ -86,25 +86,33 @@
         @JoinColumn(name = "who_got_out_id")
         private Player whoGotOut;
 
-        @Column(nullable = false)
+        @Column(name = "player1_runs", nullable = false)
         private Integer player1Runs = 0;
-        @Column(nullable = false)
+
+        @Column(name = "player1_balls_faced", nullable = false)
         private Integer player1BallsFaced = 0;
-        @Column(nullable = false)
+
+        @Column(name = "player1_dot_balls", nullable = false)
         private Integer player1DotBalls = 0;
-        @Column(nullable = false)
+
+        @Column(name = "player1_fours_hit", nullable = false)
         private Integer player1FoursHit = 0;
-        @Column(nullable = false)
+
+        @Column(name = "player1_sixes_hit", nullable = false)
         private Integer player1SixesHit = 0;
 
-        @Column(nullable = false)
+        @Column(name = "player2_runs", nullable = false)
         private Integer player2Runs = 0;
-        @Column(nullable = false)
+
+        @Column(name = "player2_balls_faced", nullable = false)
         private Integer player2BallsFaced = 0;
-        @Column(nullable = false)
+
+        @Column(name = "player2_dot_balls", nullable = false)
         private Integer player2DotBalls = 0;
-        @Column(nullable = false)
+
+        @Column(name = "player2_fours_hit", nullable = false)
         private Integer player2FoursHit = 0;
-        @Column(nullable = false)
+
+        @Column(name = "player2_sixes_hit", nullable = false)
         private Integer player2SixesHit = 0;
     }
