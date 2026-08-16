@@ -30,7 +30,7 @@ class MatchValidatorTest {
     }
 
     @Test
-    void rejectsPlayerRepresentingBothTeams() {
+    void allowsJokerPlayerToRepresentBothTeamsInSameMatch() {
         MatchDataDto dto = new MatchDataDto(
                 "season-1",
                 Map.of(
@@ -45,9 +45,7 @@ class MatchValidatorTest {
                 new ResultDto(null, "TIE", 0, null)
         );
 
-        assertThatThrownBy(() -> validator.validate(dto))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("both teams");
+        assertThatCode(() -> validator.validate(dto)).doesNotThrowAnyException();
     }
 
     private MatchDataDto baseDto(ResultDto result) {

@@ -35,9 +35,10 @@ public class MatchValidator {
 
         Set<String> teamAPlayers = canonicalPlayers(teamA.players());
         Set<String> teamBPlayers = canonicalPlayers(teamB.players());
-        Set<String> overlap = new HashSet<>(teamAPlayers);
-        overlap.retainAll(teamBPlayers);
-        require(overlap.isEmpty(), "A player cannot represent both teams in the same match: " + overlap);
+
+        // Gully-cricket domain rule: the same physical player may act as a "joker"
+        // and represent both teams in the same match. We intentionally validate
+        // uniqueness only within each individual team squad, not across squads.
 
         List<InningsDto> innings = dto.innings();
         require(innings != null && !innings.isEmpty(), "At least one innings is required");
