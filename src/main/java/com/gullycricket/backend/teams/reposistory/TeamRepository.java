@@ -9,4 +9,6 @@ public interface TeamRepository extends JpaRepository<Team,String> {
     List<Team> findByTeamNameContainingIgnoreCase(String name);
 
     Team findByTeamName(String name);
+
+    List<Team> findDistinctBySeasonsPlayed_Id(String seasonId);
 }

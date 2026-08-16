@@ -1,4 +1,4 @@
-package com.gullycricket.backend.stat.enums;
+package com.gullycricket.backend.stats.enums;
 
 public enum MatchResult {
     WIN,

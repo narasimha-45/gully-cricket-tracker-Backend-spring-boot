@@ -15,6 +15,16 @@ import lombok.Setter;
         name = "player_matches",
         uniqueConstraints = {
                 @UniqueConstraint(columnNames = {"player_id", "match_id", "team_represented_id", "innings_number"})
+        },
+        indexes = {
+                // Every one of these is a filter column in PlayerMatchSpecifications —
+                // without an index Postgres has to sequentially scan player_matches for
+                // every leaderboard/profile request.
+                @Index(name = "idx_player_matches_player_id", columnList = "player_id"),
+                @Index(name = "idx_player_matches_season_id", columnList = "season_id"),
+                @Index(name = "idx_player_matches_team_represented_id", columnList = "team_represented_id"),
+                @Index(name = "idx_player_matches_opposition_team_id", columnList = "opposition_team_id"),
+                @Index(name = "idx_player_matches_match_id", columnList = "match_id")
         }
 )
 @Getter
@@ -27,23 +37,23 @@ public class PlayerMatch {
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
 
-    @ManyToOne(optional = false)
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
     @JoinColumn(name = "player_id")
     private Player player;
 
-    @ManyToOne(optional = false)
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
     @JoinColumn(name = "match_id")
     private Match match;
 
-    @ManyToOne(optional = false)
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
     @JoinColumn(name = "season_id")
     private Season season;
 
-    @ManyToOne(optional = false)
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
     @JoinColumn(name = "team_represented_id")
     private Team teamRepresented;
 
-    @ManyToOne(optional = false)
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
     @JoinColumn(name = "opposition_team_id")
     private Team oppositionTeam;
 
@@ -51,7 +61,7 @@ public class PlayerMatch {
     private MatchType matchType;        // LIMITED_OVERS or TEST_MATCH
 
     @Column(nullable = false)
-    private Integer inningsNumber = 1;     // 1 = 1st innings round, 2 = 2nd innings round (Test only)
+    private Integer inningsNumber = 1;
 
     // =========================
     // Match Context

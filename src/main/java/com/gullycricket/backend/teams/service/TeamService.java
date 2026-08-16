@@ -2,10 +2,7 @@ package com.gullycricket.backend.teams.service;
 
 
 import com.gullycricket.backend.teams.DTOs.TeamSearchSuggestionDto;
-import com.gullycricket.backend.teams.DTOs.TeamSeasonPlayerDto;
-import com.gullycricket.backend.teams.entity.PlayerTeam;
 import com.gullycricket.backend.teams.entity.Team;
-import com.gullycricket.backend.teams.reposistory.PlayerTeamRepository;
 import com.gullycricket.backend.teams.reposistory.TeamRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -47,4 +44,26 @@ public class TeamService {
         return teamRepository.save(team);
     }
 
+    public List<TeamSearchSuggestionDto> getAllTeams() {
+        List<Team> teams = teamRepository.findAll();
+
+        return teams.stream().map(
+                team -> new TeamSearchSuggestionDto(
+                        team.getId(),
+                        team.getTeamName()
+                )
+        ).toList();
+
+    }
+
+    public List<TeamSearchSuggestionDto> getTeamsBySeasonId(String seasonId) {
+        return teamRepository
+                .findDistinctBySeasonsPlayed_Id(seasonId)
+                .stream()
+                .map(team -> new TeamSearchSuggestionDto(
+                        team.getId(),
+                        team.getTeamName()
+                ))
+                .toList();
+    }
 }

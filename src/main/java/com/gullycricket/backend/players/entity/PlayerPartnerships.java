@@ -29,23 +29,23 @@
         @GeneratedValue(strategy = GenerationType.UUID)
         private String id;
 
-        @ManyToOne(optional = false)
+        @ManyToOne(optional = false, fetch = FetchType.LAZY)
         @JoinColumn(name = "player1_id")
         private Player player1;
 
-        @ManyToOne(optional = false)
+        @ManyToOne(optional = false, fetch = FetchType.LAZY)
         @JoinColumn(name = "player2_id")
         private Player player2;
 
-        @ManyToOne(optional = false)
+        @ManyToOne(optional = false, fetch = FetchType.LAZY)
         @JoinColumn(name = "match_id")
         private Match match;
 
-        @ManyToOne(optional = false)
+        @ManyToOne(optional = false, fetch = FetchType.LAZY)
         @JoinColumn(name = "season_id")
         private Season season;
 
-        @ManyToOne(optional = false)
+        @ManyToOne(optional = false, fetch = FetchType.LAZY)
         @JoinColumn(name = "team_represented_id")
         private Team teamRepresented;
 
@@ -82,7 +82,7 @@
         @Column(nullable = false)
         private boolean partnershipBroken = false;
 
-        @ManyToOne
+        @ManyToOne(fetch = FetchType.LAZY)
         @JoinColumn(name = "who_got_out_id")
         private Player whoGotOut;
 

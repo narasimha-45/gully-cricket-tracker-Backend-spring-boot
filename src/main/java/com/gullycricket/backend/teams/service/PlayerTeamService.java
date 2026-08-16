@@ -9,6 +9,7 @@ import com.gullycricket.backend.teams.reposistory.PlayerTeamRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Set;
@@ -30,10 +31,12 @@ public class PlayerTeamService {
         return playerTeamRepository.saveAll(playerTeams);
     }
 
+    @Transactional(readOnly = true)
     public boolean existsByPlayerAndTeamAndSeason(Player player, Team team, Season season) {
         return playerTeamRepository.existsByPlayerAndTeamAndSeason(player, team, season);
     }
 
+    @Transactional(readOnly = true)
     public Set<String> findExistingPlayerNamesByTeamAndSeason(Team team, Season season) {
         return playerTeamRepository.findByTeamAndSeason(team, season)
                 .stream()
@@ -41,6 +44,7 @@ public class PlayerTeamService {
                 .collect(Collectors.toSet());
     }
 
+    @Transactional(readOnly = true)
     public List<TeamSeasonPlayerDto> getPlayersByTeamAndSeason(String teamId, String seasonId) {
         List<PlayerTeam> playerTeams = playerTeamRepository.getPlayersByTeam_IdAndSeason_Id(teamId, seasonId);
         return playerTeams.stream()

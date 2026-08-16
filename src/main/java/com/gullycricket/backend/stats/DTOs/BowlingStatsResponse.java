@@ -1,6 +1,6 @@
-package com.gullycricket.backend.stat.DTOs;
+package com.gullycricket.backend.stats.DTOs;
 
-import com.gullycricket.backend.stat.enums.BestBowlingFigures;
+import com.gullycricket.backend.stats.enums.BestBowlingFigures;
 
 public record BowlingStatsResponse(
         String playerId,

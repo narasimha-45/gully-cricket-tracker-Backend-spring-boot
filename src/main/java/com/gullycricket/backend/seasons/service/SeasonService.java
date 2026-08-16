@@ -10,6 +10,7 @@ import com.gullycricket.backend.teams.entity.Team;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -24,6 +25,7 @@ public class SeasonService {
     @Autowired
     private MatchRepository matchRepository;
 
+    @Transactional(readOnly = true)
     public List<Season> getAllSeasons(){
         log.info("Fetching all seasons from database");
         List<Season> fetchedSeasons = seasonJpaRepository.findAll();
@@ -31,6 +33,7 @@ public class SeasonService {
         return fetchedSeasons;
     }
 
+    @Transactional(readOnly = true)
     public Season getSeasonById(String seasonId){
         log.info("Fetching season with ID {}", seasonId);
         Season season = seasonJpaRepository.findById(seasonId)
@@ -56,6 +59,7 @@ public class SeasonService {
         return updatedSeason;
     }
 
+    @Transactional(readOnly = true)
     public List<MatchResponseDto> getALlMatchesBySeasonId(String seasonId) {
         log.info("Fetching all matches for season with ID {}", seasonId);
         List<MatchResponseDto> matches = matchRepository.findBySeason_Id(seasonId)
@@ -66,6 +70,7 @@ public class SeasonService {
         return matches;
     }
 
+    @Transactional(readOnly = true)
     public List<SeasonSearchDto> searchSeasons(String query){
         log.info("Searching for players like {}",query);
 

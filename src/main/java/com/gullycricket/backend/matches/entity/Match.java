@@ -16,7 +16,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Entity
-@Table(name = "matches")
+@Table(
+        name = "matches",
+        indexes = {
+                @Index(name = "idx_matches_season_id", columnList = "season_id"),
+                @Index(name = "idx_matches_team_a_id", columnList = "team_a_id"),
+                @Index(name = "idx_matches_team_b_id", columnList = "team_b_id"),
+                @Index(name = "idx_matches_status", columnList = "status")
+        }
+)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -27,7 +35,7 @@ public class Match {
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
 
-    @ManyToOne(optional = false)
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
     @JoinColumn(name = "season_id")
     private Season season;
 
@@ -39,11 +47,11 @@ public class Match {
     @Column(nullable = false)
     private MatchType matchType;
 
-    @ManyToOne(optional = false)
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
     @JoinColumn(name = "team_a_id")
     private Team teamA;
 
-    @ManyToOne(optional = false)
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
     @JoinColumn(name = "team_b_id")
     private Team teamB;
 
@@ -67,7 +75,7 @@ public class Match {
 
     private Integer totalOvers;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "winner_team_id")
     private Team winnerTeam;
 
@@ -76,11 +84,11 @@ public class Match {
 
     private Boolean isBattingFirstTeamWon = false;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "batting_first_team_id")
     private Team battingFirstTeam;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "batting_second_team_id")
     private Team battingSecondTeam;
 

@@ -43,6 +43,18 @@ public class TeamController {
         return ResponseEntity.ok(teamService.searchTeam(query));
     }
 
+    @GetMapping("/get-teams")
+    public ResponseEntity<List<TeamSearchSuggestionDto>> getTeams(
+            @RequestParam(defaultValue = "All") String seasonId
+    ) {
+        List<TeamSearchSuggestionDto> teams =
+                "All".equalsIgnoreCase(seasonId.trim())
+                        ? teamService.getAllTeams()
+                        : teamService.getTeamsBySeasonId(seasonId.trim());
+
+        return ResponseEntity.ok(teams);
+    }
+
     @GetMapping("/season-player")
     @Operation(
             summary = "Get team season player",

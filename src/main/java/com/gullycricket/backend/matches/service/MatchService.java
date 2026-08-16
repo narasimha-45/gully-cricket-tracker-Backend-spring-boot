@@ -2,9 +2,17 @@ package com.gullycricket.backend.matches.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gullycricket.backend.common.util.NameNormalizer;
+import com.gullycricket.backend.matches.DTOs.BallDto;
+import com.gullycricket.backend.matches.DTOs.BattingStatDto;
+import com.gullycricket.backend.matches.DTOs.BowlingStatDto;
+import com.gullycricket.backend.matches.DTOs.DismissalDto;
 import com.gullycricket.backend.matches.DTOs.InningsDto;
 import com.gullycricket.backend.matches.DTOs.MatchDataDto;
 import com.gullycricket.backend.matches.DTOs.MatchResponseDto;
+import com.gullycricket.backend.matches.DTOs.ResultDto;
+import com.gullycricket.backend.matches.DTOs.TeamDto;
+import com.gullycricket.backend.matches.DTOs.WicketDto;
 import com.gullycricket.backend.matches.entity.Match;
 import com.gullycricket.backend.matches.entity.MatchInningsSummary;
 import com.gullycricket.backend.matches.entity.MatchStatus;
@@ -21,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -35,6 +44,7 @@ public class MatchService {
     private final ProcessPlayerStatsService processPlayerStatsService;
     private final TeamService teamService;
 
+    @Transactional(readOnly = true)
     public MatchResponseDto getMatchById(String matchId) {
         log.info("Fetching match with id: {}", matchId);
 
@@ -55,8 +65,23 @@ public class MatchService {
 
         MatchDataDto dto = objectMapper.convertValue(matchData, MatchDataDto.class);
 
-        Season season = seasonRepository.findById(dto.seasonId())
-                .orElseThrow(() -> new RuntimeException("Season not found: " + dto.seasonId()));
+        // Every player name that will ever be used as a lookup/grouping key downstream
+        // (team squads, batting/bowling stat maps, dismissals, ball-by-ball, man of the
+        // match) is normalized here in one place, before any Player is looked up or
+        // created. This is what keeps "Virat Kohli", "virat kohli ", and "VIRAT KOHLI"
+        // resolving to the exact same Player row instead of three different ones — for
+        // both live match creation and the Mongo migration, since migration calls this
+        // same method.
+        dto = normalizePlayerNames(dto);
+
+        // Re-serialize so the stored jsonb blob reflects the same normalized names as
+        // everything derived from it — otherwise getMatchById would keep returning the
+        // original casing/spacing even though every Player/PlayerMatch row is normalized.
+        JsonNode normalizedMatchData = objectMapper.valueToTree(dto);
+
+        MatchDataDto finalDto = dto;
+        Season season = seasonRepository.findById(finalDto.seasonId())
+                .orElseThrow(() -> new RuntimeException("Season not found: " + finalDto.seasonId()));
 
         season.setMatchesPlayed(season.getMatchesPlayed() + 1);
 
@@ -86,7 +111,7 @@ public class MatchService {
 
         Match match = new Match();
         match.setSeason(season);
-        match.setMatchData(matchData);
+        match.setMatchData(normalizedMatchData);
         match.setStatus(MatchStatus.COMPLETED);
         match.setTeamA(teamAEntity);
         match.setTeamB(teamBEntity);
@@ -109,7 +134,7 @@ public class MatchService {
                     winner, hasSuperOver, teamASquadSize, teamBSquadSize, battingFirstTeamName);
         }
 
-        log.info("match data before saving: {}", matchData);
+        log.info("match data before saving: {}", normalizedMatchData);
 
         Match savedMatch = matchRepository.save(match);
 
@@ -126,7 +151,7 @@ public class MatchService {
     // Mirrors the get-or-create logic in ProcessPlayerStatsService.processSingleTeam.
     // Safe to call from both places — lookup is by name, so this never creates duplicates.
     private Team resolveTeam(String teamName, Season season) {
-        String normalizedName = teamName.toLowerCase();
+        String normalizedName = NameNormalizer.normalize(teamName);
 
         Team team = teamService.getTeamByName(normalizedName);
         if (team == null) {
@@ -288,4 +313,109 @@ public class MatchService {
         }
     }
 
+    // =====================================================================
+    // Player name normalization
+    // =====================================================================
+    // Team names are intentionally left untouched here — resolveTeam/processSingleTeam
+    // normalize those themselves. Only the player-name fields are rewritten below, so
+    // every player ends up keyed/stored consistently regardless of how the incoming
+    // JSON capitalized or spaced their name.
+
+    private MatchDataDto normalizePlayerNames(MatchDataDto dto) {
+        Map<String, TeamDto> normalizedTeams = new LinkedHashMap<>();
+        if (dto.teams() != null) {
+            dto.teams().forEach((key, teamDto) -> normalizedTeams.put(key, normalizeTeamDto(teamDto)));
+        }
+
+        List<InningsDto> normalizedInnings = dto.innings() == null
+                ? List.of()
+                : dto.innings().stream().map(this::normalizeInnings).toList();
+
+        ResultDto normalizedResult = dto.result() == null ? null : new ResultDto(
+                dto.result().winner(),
+                dto.result().type(),
+                dto.result().margin(),
+                NameNormalizer.normalize(dto.result().manOfTheMatch())
+        );
+
+        return new MatchDataDto(
+                dto.seasonId(), normalizedTeams, dto.toss(), dto.rules(), dto.totalOvers(),
+                dto.matchType(), normalizedInnings, normalizedResult
+        );
+    }
+
+    private TeamDto normalizeTeamDto(TeamDto teamDto) {
+        if (teamDto == null) {
+            return new TeamDto(null, List.of());
+        }
+        List<String> normalizedPlayers = teamDto.players() == null
+                ? List.of()
+                : teamDto.players().stream().map(NameNormalizer::normalize).toList();
+        return new TeamDto(teamDto.name(), normalizedPlayers);
+    }
+
+    private InningsDto normalizeInnings(InningsDto inning) {
+        Map<String, BattingStatDto> normalizedBatting = normalizeKeys(inning.battingStats());
+        Map<String, BowlingStatDto> normalizedBowling = normalizeKeys(inning.bowlingStats());
+
+        Map<String, DismissalDto> normalizedDismissals = new LinkedHashMap<>();
+        if (inning.dismissals() != null) {
+            inning.dismissals().forEach((playerName, dismissal) -> normalizedDismissals.put(
+                    NameNormalizer.normalize(playerName), normalizeDismissal(dismissal)
+            ));
+        }
+
+        List<BallDto> normalizedBalls = inning.ballByBall() == null
+                ? List.of()
+                : inning.ballByBall().stream().map(this::normalizeBall).toList();
+
+        return new InningsDto(
+                inning.battingTeam(), inning.bowlingTeam(), inning.totalRuns(), inning.wickets(), inning.balls(),
+                normalizedBatting, normalizedBowling, inning.extras(), normalizedDismissals, normalizedBalls,
+                inning.isSuperOver(), inning.completed()
+        );
+    }
+
+    private <T> Map<String, T> normalizeKeys(Map<String, T> map) {
+        if (map == null) {
+            return Map.of();
+        }
+        Map<String, T> normalized = new LinkedHashMap<>();
+        map.forEach((playerName, value) -> normalized.put(NameNormalizer.normalize(playerName), value));
+        return normalized;
+    }
+
+    private DismissalDto normalizeDismissal(DismissalDto dismissal) {
+        if (dismissal == null) {
+            return null;
+        }
+        return new DismissalDto(
+                dismissal.type(),
+                NameNormalizer.normalize(dismissal.bowler()),
+                NameNormalizer.normalize(dismissal.fielder())
+        );
+    }
+
+    private BallDto normalizeBall(BallDto ball) {
+        return new BallDto(
+                ball.over(), ball.ballInOver(), ball.actualBallNum(),
+                NameNormalizer.normalize(ball.striker()),
+                NameNormalizer.normalize(ball.nonStriker()),
+                NameNormalizer.normalize(ball.bowler()),
+                ball.runs(), ball.type(), ball.isWicket(),
+                normalizeWicket(ball.wicket()),
+                ball.timestamp()
+        );
+    }
+
+    private WicketDto normalizeWicket(WicketDto wicket) {
+        if (wicket == null) {
+            return null;
+        }
+        return new WicketDto(
+                wicket.type(),
+                NameNormalizer.normalize(wicket.outBatsman()),
+                NameNormalizer.normalize(wicket.helper())
+        );
+    }
 }

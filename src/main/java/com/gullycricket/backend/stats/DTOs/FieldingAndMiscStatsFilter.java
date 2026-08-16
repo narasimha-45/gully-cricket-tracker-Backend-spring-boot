@@ -1,7 +1,7 @@
-package com.gullycricket.backend.stat.DTOs;
+package com.gullycricket.backend.stats.DTOs;
 
 import com.gullycricket.backend.matches.entity.MatchType;
-import com.gullycricket.backend.stat.enums.MatchResult;
+import com.gullycricket.backend.stats.enums.MatchResult;
 
 public record FieldingAndMiscStatsFilter(
         String seasonId,

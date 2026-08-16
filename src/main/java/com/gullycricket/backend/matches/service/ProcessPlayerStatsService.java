@@ -1,5 +1,6 @@
 package com.gullycricket.backend.matches.service;
 
+import com.gullycricket.backend.common.util.NameNormalizer;
 import com.gullycricket.backend.matches.DTOs.*;
 import com.gullycricket.backend.matches.entity.Match;
 import com.gullycricket.backend.players.entity.*;
@@ -72,7 +73,7 @@ public class ProcessPlayerStatsService {
     }
 
     private void processSingleTeam(ProcessingContext ctx, TeamDto teamDto) {
-        String teamName = teamDto.name().toLowerCase();
+        String teamName = NameNormalizer.normalize(teamDto.name());
 
         Team team = teamService.getTeamByName(teamName);
         if (team == null) {
@@ -116,7 +117,7 @@ public class ProcessPlayerStatsService {
                 continue;
             }
 
-            int inningsNumber = (i / 2) + 1;
+            int inningsNumber = i  + 1;
             Team battingTeam = ctx.teamMap().get(inning.battingTeam());
             Team bowlingTeam = ctx.teamMap().get(inning.bowlingTeam());
             boolean battingFirst = i % 2 == 0;
@@ -151,7 +152,7 @@ public class ProcessPlayerStatsService {
                 continue;
             }
 
-            int inningsNumber = (i / 2) + 1;
+            int inningsNumber = i  + 1;
             Team battingTeam = ctx.teamMap().get(inning.battingTeam());
             Team bowlingTeam = ctx.teamMap().get(inning.bowlingTeam());
             boolean battingFirst = i % 2 == 0;
@@ -175,7 +176,7 @@ public class ProcessPlayerStatsService {
 
     private void processFieldingStats(ProcessingContext ctx, List<InningsDto> innings) {
         for (int i = 0; i < innings.size(); i++) {
-            int inningsNumber = (i / 2) + 1;
+            int inningsNumber = i  + 1;
             InningsDto inning = innings.get(i);
 
             if (inning.isSuperOver()) {
