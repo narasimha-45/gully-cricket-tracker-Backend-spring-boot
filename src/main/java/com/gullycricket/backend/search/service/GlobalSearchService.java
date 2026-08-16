@@ -1,38 +1,34 @@
 package com.gullycricket.backend.search.service;
 
-import com.gullycricket.backend.players.DTOs.PlayerSearchSuggestionDto;
+import com.gullycricket.backend.players.dto.PlayerSearchSuggestionDto;
 import com.gullycricket.backend.players.service.PlayerService;
-import com.gullycricket.backend.search.DTOs.GlobalSearchResponseDto;
-import com.gullycricket.backend.seasons.DTOs.SeasonSearchDto;
+import com.gullycricket.backend.search.dto.GlobalSearchResponseDto;
+import com.gullycricket.backend.seasons.dto.SeasonSearchDto;
 import com.gullycricket.backend.seasons.service.SeasonService;
-import com.gullycricket.backend.teams.DTOs.TeamSearchSuggestionDto;
+import com.gullycricket.backend.teams.dto.TeamSearchSuggestionDto;
 import com.gullycricket.backend.teams.service.TeamService;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 
 @Service
+@RequiredArgsConstructor
 public class GlobalSearchService {
 
-    @Autowired
-    private PlayerService playerService;
+    private final PlayerService playerService;
+    private final SeasonService seasonService;
+    private final TeamService teamService;
 
-    @Autowired
-    private SeasonService seasonService;
+    public GlobalSearchResponseDto globalSearch(String query) {
+        String normalized = query == null ? "" : query.trim();
+        if (normalized.length() < 2) {
+            return new GlobalSearchResponseDto(List.of(), List.of(), List.of());
+        }
 
-    @Autowired
-    private TeamService teamService;
-
-    public GlobalSearchResponseDto globalSearch(String query){
-        List<PlayerSearchSuggestionDto> players = playerService.searchPlayers(query);
-        List<TeamSearchSuggestionDto> teams = teamService.searchTeam(query);
-        List<SeasonSearchDto> seasons = seasonService.searchSeasons(query);
-
-        return new GlobalSearchResponseDto(
-                players,
-                teams,
-                seasons
-        );
+        List<PlayerSearchSuggestionDto> players = playerService.searchPlayers(normalized);
+        List<TeamSearchSuggestionDto> teams = teamService.searchTeam(normalized);
+        List<SeasonSearchDto> seasons = seasonService.searchSeasons(normalized);
+        return new GlobalSearchResponseDto(players, teams, seasons);
     }
 }
