@@ -8,13 +8,12 @@ class StatsReadRepositorySqlTest {
 
     @Test
     void battingSqlKeepsDynamicClausesSeparated() {
-        String sql = StatsReadRepository.buildBattingSql(
+        String sql = normalizeSql(StatsReadRepository.buildBattingSql(
                 " AND pm.season_id = :seasonId",
-                "total_runs DESC, player_name ASC");
+                "total_runs DESC, player_name ASC"));
 
         assertThat(sql)
-                .contains(":seasonId\n")
-                .contains("\nGROUP BY pm.player_id, p.name")
+                .contains("WHERE pm.batted = TRUE AND pm.season_id = :seasonId GROUP BY pm.player_id, p.name")
                 .contains("ORDER BY total_runs DESC, player_name ASC")
                 .doesNotContain(":seasonIdGROUP")
                 .doesNotContain("ORDER BYtotal_runs");
@@ -22,28 +21,33 @@ class StatsReadRepositorySqlTest {
 
     @Test
     void bowlingSqlKeepsDynamicClausesSeparated() {
-        String sql = StatsReadRepository.buildBowlingSql(
+        String sql = normalizeSql(StatsReadRepository.buildBowlingSql(
                 " AND pm.season_id = :seasonId",
-                "total_wickets DESC, bowling_average ASC NULLS LAST, player_name ASC");
+                "total_wickets DESC, bowling_average ASC NULLS LAST, player_name ASC"));
 
         assertThat(sql)
-                .contains(":seasonId\n")
-                .contains("\n                ),")
+                .contains("WHERE pm.bowled = TRUE AND pm.season_id = :seasonId ), aggregate_stats AS (")
+                .contains("), ranked_figures AS (")
+                .contains("), ten_haul AS (")
                 .contains("ORDER BY total_wickets DESC, bowling_average ASC NULLS LAST, player_name ASC")
-                .doesNotContain(":seasonId)")
+                .doesNotContain(":seasonIdGROUP")
                 .doesNotContain("ORDER BYtotal_wickets");
     }
 
     @Test
     void fieldingSqlKeepsDynamicClausesSeparated() {
-        String sql = StatsReadRepository.buildFieldingSql(
+        String sql = normalizeSql(StatsReadRepository.buildFieldingSql(
                 " AND pm.season_id = :seasonId",
-                "total_catches DESC, player_name ASC");
+                "total_catches DESC, player_name ASC"));
 
         assertThat(sql)
-                .contains(":seasonId\n")
+                .contains("WHERE 1 = 1 AND pm.season_id = :seasonId GROUP BY pm.player_id, p.name")
                 .contains("ORDER BY total_catches DESC, player_name ASC")
                 .doesNotContain(":seasonIdGROUP")
                 .doesNotContain("ORDER BYtotal_catches");
+    }
+
+    private static String normalizeSql(String sql) {
+        return sql.replaceAll("\\s+", " ").trim();
     }
 }
