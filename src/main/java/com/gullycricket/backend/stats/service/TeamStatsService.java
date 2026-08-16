@@ -1,17 +1,19 @@
 package com.gullycricket.backend.stats.service;
 
+import com.gullycricket.backend.common.exception.ResourceNotFoundException;
 import com.gullycricket.backend.matches.entity.Match;
+import com.gullycricket.backend.matches.entity.MatchInningsSummary;
 import com.gullycricket.backend.matches.entity.MatchStatus;
-import com.gullycricket.backend.matches.respository.MatchRepository;
+import com.gullycricket.backend.matches.repository.MatchRepository;
 import com.gullycricket.backend.seasons.entity.Season;
-import com.gullycricket.backend.stats.DTOs.NotableMatchDto;
-import com.gullycricket.backend.stats.DTOs.TeamLeaderboardEntryDto;
-import com.gullycricket.backend.stats.DTOs.TeamProfileDto;
-import com.gullycricket.backend.stats.DTOs.TeamSeasonStatsDto;
+import com.gullycricket.backend.stats.dto.NotableMatchDto;
+import com.gullycricket.backend.stats.dto.TeamLeaderboardEntryDto;
+import com.gullycricket.backend.stats.dto.TeamProfileDto;
+import com.gullycricket.backend.stats.dto.TeamSeasonStatsDto;
 import com.gullycricket.backend.stats.enums.MatchResult;
 import com.gullycricket.backend.stats.enums.TeamSortBy;
 import com.gullycricket.backend.teams.entity.Team;
-import com.gullycricket.backend.teams.reposistory.TeamRepository;
+import com.gullycricket.backend.teams.repository.TeamRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,8 +38,9 @@ public class TeamStatsService {
     // =====================================================================
 
     public TeamProfileDto getTeamProfile(String teamId, String seasonId) {
-        Team team = teamRepository.findById(teamId).orElse(null);
-        String teamName = team != null ? team.getTeamName() : null;
+        Team team = teamRepository.findById(teamId)
+                .orElseThrow(() -> new ResourceNotFoundException("Team not found: " + teamId));
+        String teamName = team.getTeamName();
 
         List<Match> matches = seasonId != null
                 ? matchRepository.findCompletedMatchesForTeamAndSeason(teamId, seasonId, MatchStatus.COMPLETED)
@@ -99,8 +102,8 @@ public class TeamStatsService {
         // by team id in memory — this is what keeps the leaderboard fast as the
         // number of teams grows.
         List<Match> allMatches = seasonId != null
-                ? matchRepository.findByStatusAndSeason_Id(MatchStatus.COMPLETED, seasonId)
-                : matchRepository.findByStatus(MatchStatus.COMPLETED);
+                ? matchRepository.findByStatusAndSeasonWithInnings(MatchStatus.COMPLETED, seasonId)
+                : matchRepository.findByStatusWithInnings(MatchStatus.COMPLETED);
 
         Map<String, List<Match>> matchesByTeamId = new HashMap<>();
         for (Match match : allMatches) {
@@ -129,7 +132,8 @@ public class TeamStatsService {
                 .collect(Collectors.toCollection(ArrayList::new));
 
         entries.sort(teamComparator(sortBy));
-        return limit != null ? entries.stream().limit(limit).toList() : entries;
+        int safeLimit = limit == null ? 50 : Math.max(1, Math.min(limit, 100));
+        return entries.stream().limit(safeLimit).toList();
     }
 
     private Comparator<TeamLeaderboardEntryDto> teamComparator(TeamSortBy sortBy) {
@@ -153,10 +157,12 @@ public class TeamStatsService {
     private NotableMatchDto toNotableMatch(Match match, String teamId) {
         boolean isTeamA = match.getTeamA().getId().equals(teamId);
         Team opponent = isTeamA ? match.getTeamB() : match.getTeamA();
-        int teamScore = isTeamA ? nullToZero(match.getTeamAScore()) : nullToZero(match.getTeamBScore());
-        int teamWickets = isTeamA ? nullToZero(match.getTeamAWickets()) : nullToZero(match.getTeamBWickets());
-        int opponentScore = isTeamA ? nullToZero(match.getTeamBScore()) : nullToZero(match.getTeamAScore());
-        int opponentWickets = isTeamA ? nullToZero(match.getTeamBWickets()) : nullToZero(match.getTeamAWickets());
+        TeamScore teamTotals = scoreForTeam(match, isTeamA ? match.getTeamA() : match.getTeamB());
+        TeamScore opponentTotals = scoreForTeam(match, opponent);
+        int teamScore = teamTotals.runs();
+        int teamWickets = teamTotals.wickets();
+        int opponentScore = opponentTotals.runs();
+        int opponentWickets = opponentTotals.wickets();
 
         boolean battingFirst = match.getBattingFirstTeam() != null && match.getBattingFirstTeam().getId().equals(teamId);
 
@@ -165,7 +171,9 @@ public class TeamStatsService {
             result = MatchResult.TIE;
         } else if (Boolean.TRUE.equals(match.getIsMatchDrawn())) {
             result = MatchResult.NO_RESULT;
-        } else if (match.getWinnerTeam() != null && match.getWinnerTeam().getId().equals(teamId)) {
+        } else if (match.getWinnerTeam() == null) {
+            result = MatchResult.NO_RESULT;
+        } else if (match.getWinnerTeam().getId().equals(teamId)) {
             result = MatchResult.WIN;
         } else {
             result = MatchResult.LOSS;
@@ -226,6 +234,25 @@ public class TeamStatsService {
 
         return r;
     }
+
+
+    private TeamScore scoreForTeam(Match match, Team team) {
+        List<MatchInningsSummary> innings = match.getInningsSummaries().stream()
+                .filter(i -> !i.isSuperOver() && i.getBattingTeam().getId().equals(team.getId()))
+                .toList();
+        if (!innings.isEmpty()) {
+            return new TeamScore(
+                    innings.stream().mapToInt(MatchInningsSummary::getRuns).sum(),
+                    innings.stream().mapToInt(MatchInningsSummary::getWickets).sum()
+            );
+        }
+        boolean modelTeamA = match.getTeamA().getId().equals(team.getId());
+        return modelTeamA
+                ? new TeamScore(nullToZero(match.getTeamAScore()), nullToZero(match.getTeamAWickets()))
+                : new TeamScore(nullToZero(match.getTeamBScore()), nullToZero(match.getTeamBWickets()));
+    }
+
+    private record TeamScore(int runs, int wickets) {}
 
     private int nullToZero(Integer value) {
         return value != null ? value : 0;

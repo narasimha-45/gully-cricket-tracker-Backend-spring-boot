@@ -1,7 +1,7 @@
 package com.gullycricket.backend.players.service;
 
 import com.gullycricket.backend.common.util.NameNormalizer;
-import com.gullycricket.backend.players.DTOs.PlayerSearchSuggestionDto;
+import com.gullycricket.backend.players.dto.PlayerSearchSuggestionDto;
 import com.gullycricket.backend.players.entity.Player;
 import com.gullycricket.backend.players.repository.PlayerMatchRepository;
 import com.gullycricket.backend.players.repository.PlayerRepository;
@@ -24,10 +24,14 @@ public class PlayerService {
 
     @Transactional(readOnly = true)
     public List<PlayerSearchSuggestionDto> searchPlayers(String query) {
-        String trimmedQuery = query == null ? "" : query.trim();
+        String trimmedQuery = NameNormalizer.normalize(query);
+        trimmedQuery = trimmedQuery == null ? "" : trimmedQuery;
+        if (trimmedQuery.length() < 2) {
+            return List.of();
+        }
         log.info("Searching players with query: {}", trimmedQuery);
 
-        List<Player> players = playerRepository.findByNameContainingIgnoreCase(trimmedQuery);
+        List<Player> players = playerRepository.findTop10ByNameContainingIgnoreCaseOrderByNameAsc(trimmedQuery);
 
         // ONE grouped query for match counts across every player in the result set,
         // instead of lazily loading each player's playerMatches collection one at a
@@ -45,8 +49,6 @@ public class PlayerService {
                         matchCountsByPlayerId.getOrDefault(p.getId(), 0L).intValue()
                 ))
                 .toList();
-
-        log.info("Response of players: {}", response);
 
         return response;
     }

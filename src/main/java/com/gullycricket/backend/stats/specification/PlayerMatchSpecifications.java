@@ -58,11 +58,12 @@ public final class PlayerMatchSpecifications {
             var matchJoin = root.join("match", JoinType.INNER);
             var tied = cb.coalesce(matchJoin.<Boolean>get("isMatchTied"), Boolean.FALSE);
             var drawn = cb.coalesce(matchJoin.<Boolean>get("isMatchDrawn"), Boolean.FALSE);
+            var winnerMissing = cb.isNull(matchJoin.get("winnerTeam"));
             return switch (result) {
-                case WIN -> cb.and(cb.isTrue(root.<Boolean>get("matchWon")), cb.isFalse(tied));
-                case LOSS -> cb.and(cb.isFalse(root.<Boolean>get("matchWon")), cb.isFalse(tied), cb.isFalse(drawn));
+                case WIN -> cb.and(cb.isTrue(root.<Boolean>get("matchWon")), cb.isFalse(tied), cb.isFalse(drawn));
+                case LOSS -> cb.and(cb.isFalse(root.<Boolean>get("matchWon")), cb.isFalse(tied), cb.isFalse(drawn), cb.not(winnerMissing));
                 case TIE -> cb.isTrue(tied);
-                case NO_RESULT -> cb.isTrue(drawn);
+                case NO_RESULT -> cb.or(cb.isTrue(drawn), cb.and(winnerMissing, cb.isFalse(tied)));
             };
         };
     }

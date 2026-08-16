@@ -1,4 +1,4 @@
-package com.gullycricket.backend.stats.DTOs;
+package com.gullycricket.backend.stats.dto;
 
 public record PartnershipStatsResponse(
         String player1Id,

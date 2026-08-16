@@ -1,6 +1,6 @@
 package com.gullycricket.backend.matches.service;
 
-import com.gullycricket.backend.matches.DTOs.RulesDto;
+import com.gullycricket.backend.matches.dto.RulesDto;
 import com.gullycricket.backend.matches.entity.Match;
 import com.gullycricket.backend.matches.entity.MatchType;
 import com.gullycricket.backend.players.entity.Player;
@@ -19,13 +19,11 @@ public record ProcessingContext(
         Match match,
         Season season,
         MatchType matchType,
-        String winningTeam,
         String playerOfTheMatch,
         RulesDto rules,
         Map<String, Player> playerMap,
         Map<String, Team> teamMap,
-        Map<String, Team> playerTeamMap,
-        Set<String> seasonPlayerIds,          // player IDs already in this season — prefetched
+        Set<String> seasonPlayerIds,
         Map<String, PlayerMatch> playerMatchMap,
         Map<String, PlayerPartnerships> partnershipMap,
         Map<String, PlayerRivalry> rivalryMap,

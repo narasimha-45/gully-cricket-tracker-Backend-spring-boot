@@ -1,34 +1,32 @@
 package com.gullycricket.backend.migration.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.gullycricket.backend.matches.DTOs.BattingStatDto;
-import com.gullycricket.backend.matches.DTOs.BowlingStatDto;
-import com.gullycricket.backend.matches.DTOs.DismissalDto;
-import com.gullycricket.backend.matches.DTOs.ExtrasDto;
-import com.gullycricket.backend.matches.DTOs.InningsDto;
-import com.gullycricket.backend.matches.DTOs.MatchDataDto;
-import com.gullycricket.backend.matches.DTOs.MatchResponseDto;
-import com.gullycricket.backend.matches.DTOs.ResultDto;
-import com.gullycricket.backend.matches.DTOs.RuleDetailDto;
-import com.gullycricket.backend.matches.DTOs.RulesDto;
-import com.gullycricket.backend.matches.DTOs.TeamDto;
-import com.gullycricket.backend.matches.DTOs.TossDto;
+import com.gullycricket.backend.matches.dto.BattingStatDto;
+import com.gullycricket.backend.matches.dto.BowlingStatDto;
+import com.gullycricket.backend.matches.dto.DismissalDto;
+import com.gullycricket.backend.matches.dto.ExtrasDto;
+import com.gullycricket.backend.matches.dto.InningsDto;
+import com.gullycricket.backend.matches.dto.MatchDataDto;
+import com.gullycricket.backend.matches.dto.MatchResponseDto;
+import com.gullycricket.backend.matches.dto.ResultDto;
+import com.gullycricket.backend.matches.dto.RuleDetailDto;
+import com.gullycricket.backend.matches.dto.RulesDto;
+import com.gullycricket.backend.matches.dto.TeamDto;
+import com.gullycricket.backend.matches.dto.TossDto;
 import com.gullycricket.backend.matches.entity.Match;
 import com.gullycricket.backend.matches.entity.MatchType;
-import com.gullycricket.backend.matches.respository.MatchRepository;
+import com.gullycricket.backend.matches.repository.MatchRepository;
 import com.gullycricket.backend.matches.service.MatchService;
-import com.gullycricket.backend.migration.DTOs.MigrationSummaryDto;
-import com.gullycricket.backend.migration.DTOs.MongoBattingStatsDTO;
-import com.gullycricket.backend.migration.DTOs.MongoBowlingStatsDTO;
-import com.gullycricket.backend.migration.DTOs.MongoDismissalDTO;
-import com.gullycricket.backend.migration.DTOs.MongoExtrasDTO;
-import com.gullycricket.backend.migration.DTOs.MongoInningsDTO;
-import com.gullycricket.backend.migration.DTOs.MongoResultDTO;
-import com.gullycricket.backend.migration.DTOs.MongoRuleDTO;
-import com.gullycricket.backend.migration.DTOs.MongoRulesDTO;
-import com.gullycricket.backend.migration.DTOs.MongoTeamDTO;
-import com.gullycricket.backend.migration.DTOs.MongoTossDTO;
+import com.gullycricket.backend.migration.dto.MigrationSummaryDto;
+import com.gullycricket.backend.migration.dto.MongoBattingStatsDTO;
+import com.gullycricket.backend.migration.dto.MongoBowlingStatsDTO;
+import com.gullycricket.backend.migration.dto.MongoDismissalDTO;
+import com.gullycricket.backend.migration.dto.MongoExtrasDTO;
+import com.gullycricket.backend.migration.dto.MongoInningsDTO;
+import com.gullycricket.backend.migration.dto.MongoResultDTO;
+import com.gullycricket.backend.migration.dto.MongoRuleDTO;
+import com.gullycricket.backend.migration.dto.MongoRulesDTO;
+import com.gullycricket.backend.migration.dto.MongoTeamDTO;
+import com.gullycricket.backend.migration.dto.MongoTossDTO;
 import com.gullycricket.backend.migration.documents.MongoMatch;
 import com.gullycricket.backend.migration.documents.MongoSeason;
 import com.gullycricket.backend.migration.repository.MongoMatchRepository;
@@ -38,6 +36,7 @@ import com.gullycricket.backend.seasons.entity.Season;
 import com.gullycricket.backend.seasons.service.SeasonService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -52,7 +51,7 @@ import java.util.Map;
  * Rather than re-implementing the score/result/player-stats derivation logic that
  * already lives in {@link MatchService} and {@code ProcessPlayerStatsService}, this
  * service reshapes each {@link MongoMatch} into a {@link MatchDataDto} and routes it
- * through {@link MatchService#saveMatch(JsonNode)} — the same path the live "create
+ * through {@link MatchService#saveMatch(MatchDataDto, String)} — the same path the live "create
  * match" endpoint uses. That keeps team/player resolution, score derivation, win
  * conditions, and player-stat aggregation in one place instead of two.
  * <p>
@@ -76,6 +75,7 @@ import java.util.Map;
  * correct for the live create-match endpoint but wrong for migrating historical data.
  */
 @Slf4j
+@Profile("migration")
 @Service
 @RequiredArgsConstructor
 public class MongoToPostgresMigrationService {
@@ -85,7 +85,6 @@ public class MongoToPostgresMigrationService {
     private final SeasonService seasonService;
     private final MatchService matchService;
     private final MatchRepository matchRepository;
-    private final ObjectMapper objectMapper;
 
     public MigrationSummaryDto migrateData() {
         Map<String, String> seasonIdMap = migrateSeasons();
@@ -116,7 +115,10 @@ public class MongoToPostgresMigrationService {
         Map<String, String> seasonIdMap = new HashMap<>();
 
         for (MongoSeason season : seasons) {
-            Season newSeason = seasonService.createSeason(season.getSeasonName());
+            Season newSeason = seasonService.findSeasonByName(season.getSeasonName());
+            if (newSeason == null) {
+                newSeason = seasonService.createSeason(season.getSeasonName());
+            }
 
             if (season.getCreatedAt() != null) {
                 newSeason.setCreatedAt(season.getCreatedAt());
@@ -137,9 +139,7 @@ public class MongoToPostgresMigrationService {
         }
 
         MatchDataDto matchData = toMatchDataDto(match, newSeasonId);
-        JsonNode matchDataJson = objectMapper.valueToTree(matchData);
-
-        MatchResponseDto saved = matchService.saveMatch(matchDataJson);
+        MatchResponseDto saved = matchService.saveMatch(matchData, "mongo:" + match.getId());
 
         // saveMatch() always stamps completedAt with "now" (correct for the live
         // create-match endpoint, wrong for a migration of historical matches) —

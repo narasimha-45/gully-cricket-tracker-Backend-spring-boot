@@ -1,11 +1,12 @@
 package com.gullycricket.backend.migration.controller;
 
-import com.gullycricket.backend.migration.DTOs.MigrationSummaryDto;
+import com.gullycricket.backend.migration.dto.MigrationSummaryDto;
 import com.gullycricket.backend.migration.service.MongoToPostgresMigrationService;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Profile;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
  * config and the spring-boot-starter-data-mongodb dependency in pom.xml.
  */
 @Slf4j
+@Profile("migration")
 @RestController
 @RequestMapping("/migration")
 @RequiredArgsConstructor

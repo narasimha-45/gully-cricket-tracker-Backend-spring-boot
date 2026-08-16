@@ -1,7 +1,7 @@
 package com.gullycricket.backend.stats.controller;
 
 import com.gullycricket.backend.matches.entity.MatchType;
-import com.gullycricket.backend.stats.DTOs.*;
+import com.gullycricket.backend.stats.dto.*;
 import com.gullycricket.backend.stats.enums.*;
 import com.gullycricket.backend.stats.service.PlayerStatsService;
 import com.gullycricket.backend.stats.service.TeamStatsService;

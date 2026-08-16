@@ -1,13 +1,15 @@
 package com.gullycricket.backend.stats.service;
 
+import com.gullycricket.backend.common.exception.ResourceNotFoundException;
 import com.gullycricket.backend.matches.entity.Match;
 import com.gullycricket.backend.players.entity.Player;
 import com.gullycricket.backend.players.entity.PlayerMatch;
 import com.gullycricket.backend.players.repository.PlayerMatchRepository;
 import com.gullycricket.backend.players.repository.PlayerRepository;
 import com.gullycricket.backend.seasons.entity.Season;
-import com.gullycricket.backend.stats.DTOs.*;
+import com.gullycricket.backend.stats.dto.*;
 import com.gullycricket.backend.stats.enums.BattingSortBy;
+import com.gullycricket.backend.stats.enums.BestBowlingFigures;
 import com.gullycricket.backend.stats.enums.BowlingSortBy;
 import com.gullycricket.backend.stats.enums.FieldingSortBy;
 import com.gullycricket.backend.stats.enums.MatchResult;
@@ -37,7 +39,8 @@ public class PlayerStatsService {
     public List<BattingStatsResponse> getBattingLeaderboard(BattingStatsFilter filter, BattingSortBy sortBy, Integer minInnings, Integer limit) {
         Specification<PlayerMatch> spec = PlayerMatchSpecifications
                 .withCommonFilters(filter.seasonId(), filter.matchType(), filter.teamId(), filter.opponentTeamId(), filter.inningsNumber(), filter.result())
-                .and(PlayerMatchSpecifications.battingPosition(filter.battingPosition()));
+                .and(PlayerMatchSpecifications.battingPosition(filter.battingPosition()))
+                .and(PlayerMatchSpecifications.batted());
 
         Map<String, List<PlayerMatch>> byPlayer = groupByPlayer(playerMatchRepository.findAll(spec));
 
@@ -52,7 +55,8 @@ public class PlayerStatsService {
 
     public List<BowlingStatsResponse> getBowlingLeaderboard(BowlingStatsFilter filter, BowlingSortBy sortBy, Integer minInnings, Integer limit) {
         Specification<PlayerMatch> spec = PlayerMatchSpecifications
-                .withCommonFilters(filter.seasonId(), filter.matchType(), filter.teamId(), filter.opponentTeamId(), filter.inningsNumber(), filter.result());
+                .withCommonFilters(filter.seasonId(), filter.matchType(), filter.teamId(), filter.opponentTeamId(), filter.inningsNumber(), filter.result())
+                .and(PlayerMatchSpecifications.bowled());
 
         Map<String, List<PlayerMatch>> byPlayer = groupByPlayer(playerMatchRepository.findAll(spec));
 
@@ -89,10 +93,11 @@ public class PlayerStatsService {
                 : playerMatchRepository.findByPlayer_Id(playerId);
 
         Player player = rows.isEmpty()
-                ? playerRepository.findById(playerId).orElse(null)
+                ? playerRepository.findById(playerId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Player not found: " + playerId))
                 : rows.get(0).getPlayer();
 
-        String name = player != null ? player.getName() : null;
+        String name = player.getName();
 
         Set<String> distinctMatchIds = rows.stream().map(pm -> pm.getMatch().getId()).collect(Collectors.toSet());
         Set<String> wonMatchIds = rows.stream().filter(PlayerMatch::isMatchWon).map(pm -> pm.getMatch().getId()).collect(Collectors.toSet());
@@ -371,15 +376,26 @@ public class PlayerStatsService {
         int ballsBowled = sumInt(bowled, PlayerMatch::getBallsBowled);
         int maidens = sumInt(bowled, PlayerMatch::getMaidensBowled);
         int dotBalls = sumInt(bowled, PlayerMatch::getDotBallsBowled);
-        double economy = ballsBowled == 0 ? 0 : runsConceded / (ballsBowled / 6.0);
-        double average = wickets == 0 ? 0 : (double) runsConceded / wickets;
+        double economy = ballsBowled == 0 ? 0 : runsConceded * 6.0 / ballsBowled;
+        Double average = wickets == 0 ? null : round2((double) runsConceded / wickets);
         int fiveWicketHauls = (int) bowled.stream().filter(pm -> pm.getWicketsTaken() >= 5).count();
-        int tenWicketHauls = (int) bowled.stream().filter(pm -> pm.getWicketsTaken() >= 10).count();
+
+        Map<String, Integer> wicketsByMatch = bowled.stream().collect(Collectors.groupingBy(
+                pm -> pm.getMatch().getId(),
+                Collectors.summingInt(PlayerMatch::getWicketsTaken)
+        ));
+        int tenWicketHauls = (int) wicketsByMatch.values().stream().filter(w -> w >= 10).count();
         int matches = (int) rows.stream().map(pm -> pm.getMatch().getId()).distinct().count();
 
+        BestBowlingFigures bestFigures = bowled.stream()
+                .max(Comparator.comparingInt(PlayerMatch::getWicketsTaken)
+                        .thenComparing(Comparator.comparingInt(PlayerMatch::getRunsConceded).reversed()))
+                .map(pm -> new BestBowlingFigures(pm.getWicketsTaken(), pm.getRunsConceded(), pm.getBallsBowled()))
+                .orElse(null);
+
         return new BowlingStatsResponse(
-                playerId, playerName, wickets, runsConceded, round2(economy), ballsBowled / 6,
-                maidens, round2(average), null, fiveWicketHauls, tenWicketHauls, matches, bowled.size(), dotBalls
+                playerId, playerName, wickets, runsConceded, round2(economy), toCricketOvers(ballsBowled),
+                maidens, average, bestFigures, fiveWicketHauls, tenWicketHauls, matches, bowled.size(), dotBalls
         );
     }
 
@@ -413,12 +429,17 @@ public class PlayerStatsService {
         return rows.stream().mapToInt(mapper).sum();
     }
 
+    private static double toCricketOvers(int balls) {
+        return (balls / 6) + ((balls % 6) / 10.0);
+    }
+
     private static double round2(double value) {
         return Math.round(value * 100.0) / 100.0;
     }
 
     private <T> List<T> applyLimit(List<T> list, Integer limit) {
-        return limit != null ? list.stream().limit(limit).toList() : list;
+        int safeLimit = limit == null ? 50 : Math.max(1, Math.min(limit, 100));
+        return list.stream().limit(safeLimit).toList();
     }
 
     private Comparator<BattingStatsResponse> battingComparator(BattingSortBy sortBy) {
@@ -442,7 +463,7 @@ public class PlayerStatsService {
             case MATCHES -> Comparator.comparing(BowlingStatsResponse::totalMatchesPlayed).reversed();
             // Lower economy/average is better, so ascending order for these.
             case ECONOMY -> Comparator.comparing(BowlingStatsResponse::economyRate);
-            case AVERAGE -> Comparator.comparing(BowlingStatsResponse::average);
+            case AVERAGE -> Comparator.comparing(BowlingStatsResponse::average, Comparator.nullsLast(Comparator.naturalOrder()));
         };
     }
 

@@ -1,69 +1,59 @@
 package com.gullycricket.backend.teams.service;
 
-
-import com.gullycricket.backend.teams.DTOs.TeamSearchSuggestionDto;
+import com.gullycricket.backend.common.util.NameNormalizer;
+import com.gullycricket.backend.teams.dto.TeamSearchSuggestionDto;
 import com.gullycricket.backend.teams.entity.Team;
-import com.gullycricket.backend.teams.reposistory.TeamRepository;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.gullycricket.backend.teams.repository.TeamRepository;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
-@Slf4j
 @Service
+@RequiredArgsConstructor
 public class TeamService {
 
-    @Autowired
-    private TeamRepository teamRepository;
+    private final TeamRepository teamRepository;
 
-    @Autowired
-    private PlayerTeamService playerTeamService;
-
-    public List<TeamSearchSuggestionDto> searchTeam(String query){
-        log.info("searching for the teams having {}",query);
-
-        List<TeamSearchSuggestionDto> teams = teamRepository.findByTeamNameContainingIgnoreCase(query)
+    @Transactional(readOnly = true)
+    public List<TeamSearchSuggestionDto> searchTeam(String query) {
+        String normalized = normalizeSearch(query);
+        if (normalized.length() < 2) {
+            return List.of();
+        }
+        return teamRepository.findTop10ByTeamNameContainingIgnoreCaseOrderByTeamNameAsc(normalized)
                 .stream()
-                .map(team -> new TeamSearchSuggestionDto(
-                        team.getId(),
-                        team.getTeamName()
-                ))
+                .map(team -> new TeamSearchSuggestionDto(team.getId(), team.getTeamName()))
                 .toList();
-
-        log.info("Response of teams: {}",teams);
-
-        return teams;
     }
 
-    public Team getTeamByName(String name){
-        return teamRepository.findByTeamName(name);
+    @Transactional(readOnly = true)
+    public Team getTeamByName(String name) {
+        return teamRepository.findByTeamName(NameNormalizer.normalize(name));
     }
 
-    public Team saveTeam(Team team){
+    public Team saveTeam(Team team) {
+        team.setTeamName(NameNormalizer.normalize(team.getTeamName()));
         return teamRepository.save(team);
     }
 
+    @Transactional(readOnly = true)
     public List<TeamSearchSuggestionDto> getAllTeams() {
-        List<Team> teams = teamRepository.findAll();
-
-        return teams.stream().map(
-                team -> new TeamSearchSuggestionDto(
-                        team.getId(),
-                        team.getTeamName()
-                )
-        ).toList();
-
+        return teamRepository.findAll().stream()
+                .map(team -> new TeamSearchSuggestionDto(team.getId(), team.getTeamName()))
+                .toList();
     }
 
+    @Transactional(readOnly = true)
     public List<TeamSearchSuggestionDto> getTeamsBySeasonId(String seasonId) {
-        return teamRepository
-                .findDistinctBySeasonsPlayed_Id(seasonId)
-                .stream()
-                .map(team -> new TeamSearchSuggestionDto(
-                        team.getId(),
-                        team.getTeamName()
-                ))
+        return teamRepository.findDistinctBySeasonsPlayed_Id(seasonId).stream()
+                .map(team -> new TeamSearchSuggestionDto(team.getId(), team.getTeamName()))
                 .toList();
+    }
+
+    private String normalizeSearch(String query) {
+        String value = NameNormalizer.normalize(query);
+        return value == null ? "" : value;
     }
 }

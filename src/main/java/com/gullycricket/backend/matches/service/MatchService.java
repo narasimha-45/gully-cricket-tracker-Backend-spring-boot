@@ -2,22 +2,15 @@ package com.gullycricket.backend.matches.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gullycricket.backend.common.exception.BadRequestException;
+import com.gullycricket.backend.common.exception.ResourceNotFoundException;
 import com.gullycricket.backend.common.util.NameNormalizer;
-import com.gullycricket.backend.matches.DTOs.BallDto;
-import com.gullycricket.backend.matches.DTOs.BattingStatDto;
-import com.gullycricket.backend.matches.DTOs.BowlingStatDto;
-import com.gullycricket.backend.matches.DTOs.DismissalDto;
-import com.gullycricket.backend.matches.DTOs.InningsDto;
-import com.gullycricket.backend.matches.DTOs.MatchDataDto;
-import com.gullycricket.backend.matches.DTOs.MatchResponseDto;
-import com.gullycricket.backend.matches.DTOs.ResultDto;
-import com.gullycricket.backend.matches.DTOs.TeamDto;
-import com.gullycricket.backend.matches.DTOs.WicketDto;
+import com.gullycricket.backend.matches.dto.*;
 import com.gullycricket.backend.matches.entity.Match;
 import com.gullycricket.backend.matches.entity.MatchInningsSummary;
 import com.gullycricket.backend.matches.entity.MatchStatus;
 import com.gullycricket.backend.matches.entity.MatchType;
-import com.gullycricket.backend.matches.respository.MatchRepository;
+import com.gullycricket.backend.matches.repository.MatchRepository;
 import com.gullycricket.backend.seasons.entity.Season;
 import com.gullycricket.backend.seasons.repository.SeasonRepository;
 import com.gullycricket.backend.teams.entity.Team;
@@ -43,161 +36,192 @@ public class MatchService {
     private final ObjectMapper objectMapper;
     private final ProcessPlayerStatsService processPlayerStatsService;
     private final TeamService teamService;
+    private final MatchValidator matchValidator;
 
     @Transactional(readOnly = true)
     public MatchResponseDto getMatchById(String matchId) {
-        log.info("Fetching match with id: {}", matchId);
-
         Match match = matchRepository.findById(matchId)
-                .orElseThrow(() -> new RuntimeException("Match not found: " + matchId));
-
-        log.info("Match found with id: {}", matchId);
-        return new MatchResponseDto(
-                match.getId(),
-                match.getSeason().getId(),
-                match.getMatchData()
-        );
+                .orElseThrow(() -> new ResourceNotFoundException("Match not found: " + matchId));
+        return toResponse(match);
     }
 
+    /**
+     * Backward-compatible entry point used by the Mongo migration.
+     */
     @Transactional
     public MatchResponseDto saveMatch(JsonNode matchData) {
-        log.info("Creating new match");
+        try {
+            MatchDataDto dto = objectMapper.convertValue(matchData, MatchDataDto.class);
+            return saveMatch(dto, null);
+        } catch (IllegalArgumentException ex) {
+            throw new BadRequestException("Invalid match payload: " + ex.getMessage());
+        }
+    }
 
-        MatchDataDto dto = objectMapper.convertValue(matchData, MatchDataDto.class);
+    /**
+     * Production API entry point. Idempotency key is optional, but when supplied,
+     * retries return the already-created match rather than duplicating it.
+     */
+    @Transactional
+    public MatchResponseDto saveMatch(MatchDataDto rawDto, String idempotencyKey) {
+        String normalizedIdempotencyKey = normalizeIdempotencyKey(idempotencyKey);
+        if (normalizedIdempotencyKey != null) {
+            Match existing = matchRepository.findByIdempotencyKey(normalizedIdempotencyKey).orElse(null);
+            if (existing != null) {
+                log.info("Returning existing match for idempotency key, matchId={}", existing.getId());
+                return toResponse(existing);
+            }
+        }
 
-        // Every player name that will ever be used as a lookup/grouping key downstream
-        // (team squads, batting/bowling stat maps, dismissals, ball-by-ball, man of the
-        // match) is normalized here in one place, before any Player is looked up or
-        // created. This is what keeps "Virat Kohli", "virat kohli ", and "VIRAT KOHLI"
-        // resolving to the exact same Player row instead of three different ones — for
-        // both live match creation and the Mongo migration, since migration calls this
-        // same method.
-        dto = normalizePlayerNames(dto);
+        // Validate before and after canonicalization: first protects normalization from
+        // malformed structures, second guarantees the canonical payload is internally consistent.
+        matchValidator.validate(rawDto);
+        MatchDataDto dto = normalizeNames(rawDto);
+        matchValidator.validate(dto);
 
-        // Re-serialize so the stored jsonb blob reflects the same normalized names as
-        // everything derived from it — otherwise getMatchById would keep returning the
-        // original casing/spacing even though every Player/PlayerMatch row is normalized.
-        JsonNode normalizedMatchData = objectMapper.valueToTree(dto);
-
-        MatchDataDto finalDto = dto;
-        Season season = seasonRepository.findById(finalDto.seasonId())
-                .orElseThrow(() -> new RuntimeException("Season not found: " + finalDto.seasonId()));
-
-        season.setMatchesPlayed(season.getMatchesPlayed() + 1);
-
-        boolean hasSuperOver = dto.innings().stream()
-                .anyMatch(InningsDto::isSuperOver);
+        Season season = seasonRepository.findById(dto.seasonId())
+                .orElseThrow(() -> new ResourceNotFoundException("Season not found: " + dto.seasonId()));
 
         List<InningsDto> regularInnings = dto.innings().stream()
                 .filter(i -> !i.isSuperOver())
                 .toList();
+        boolean hasSuperOver = dto.innings().stream().anyMatch(InningsDto::isSuperOver);
 
-        String teamAName = dto.teams().get("teamA").name();
-        String teamBName = dto.teams().get("teamB").name();
-        String winner = dto.result().winner(); // null => draw (Test) or tie (limited-overs)
+        TeamDto teamADto = dto.teams().get("teamA");
+        TeamDto teamBDto = dto.teams().get("teamB");
+        String teamAName = teamADto.name();
+        String teamBName = teamBDto.name();
+        String winner = dto.result() == null ? null : dto.result().winner();
 
         Team teamAEntity = resolveTeam(teamAName, season);
         Team teamBEntity = resolveTeam(teamBName, season);
 
-        int teamASquadSize = dto.teams().get("teamA").players().size();
-        int teamBSquadSize = dto.teams().get("teamB").players().size();
-
-        // Whoever's innings appears first in the innings list batted first
-        // overall — true for every format, not just Test.
         String battingFirstTeamName = regularInnings.getFirst().battingTeam();
-        boolean teamABattedFirst = battingFirstTeamName.equalsIgnoreCase(teamAName);
-        Team battingFirstTeamEntity = teamABattedFirst ? teamAEntity : teamBEntity;
-        Team battingSecondTeamEntity = teamABattedFirst ? teamBEntity : teamAEntity;
+        boolean teamABattedFirst = battingFirstTeamName.equals(teamAName);
+        Team battingFirstTeam = teamABattedFirst ? teamAEntity : teamBEntity;
+        Team battingSecondTeam = teamABattedFirst ? teamBEntity : teamAEntity;
 
         Match match = new Match();
         match.setSeason(season);
-        match.setMatchData(normalizedMatchData);
+        match.setMatchData(objectMapper.valueToTree(dto));
         match.setStatus(MatchStatus.COMPLETED);
         match.setTeamA(teamAEntity);
         match.setTeamB(teamBEntity);
         match.setMatchType(dto.matchType());
         match.setTotalOvers(dto.totalOvers());
         match.setSuperOver(hasSuperOver);
-        match.setBattingFirstTeam(battingFirstTeamEntity);
-        match.setBattingSecondTeam(battingSecondTeamEntity);
+        match.setBattingFirstTeam(battingFirstTeam);
+        match.setBattingSecondTeam(battingSecondTeam);
         match.setCompletedAt(LocalDateTime.now());
+        match.setIdempotencyKey(normalizedIdempotencyKey);
 
-        if (winner != null && !winner.isBlank()) {
-            match.setIsBattingFirstTeamWon(winner.equalsIgnoreCase(battingFirstTeamName));
+        if (hasText(winner)) {
+            match.setIsBattingFirstTeamWon(winner.equals(battingFirstTeamName));
         }
+
+        // One innings representation for every format. Flat Match score columns are
+        // retained only as a backward-compatible read optimization for limited overs.
+        populateInningsSummaries(match, regularInnings, teamAName, teamAEntity, teamBEntity);
 
         if (dto.matchType() == MatchType.TEST) {
             applyTestResult(match, regularInnings, teamAName, teamBName, teamAEntity, teamBEntity,
-                    winner, teamASquadSize, teamBSquadSize);
+                    winner, dto.result() == null ? null : dto.result().type(), teamADto.players().size(), teamBDto.players().size());
         } else {
             applyLimitedOversResult(match, regularInnings, teamAName, teamBName, teamAEntity, teamBEntity,
-                    winner, hasSuperOver, teamASquadSize, teamBSquadSize, battingFirstTeamName);
+                    winner, dto.result() == null ? null : dto.result().type(), hasSuperOver, teamADto.players().size(), teamBDto.players().size(), battingFirstTeamName);
         }
-
-        log.info("match data before saving: {}", normalizedMatchData);
 
         Match savedMatch = matchRepository.save(match);
-
-        log.info("Match created with id: {}", savedMatch.getId());
-
         processPlayerStatsService.processPlayerStats(savedMatch, dto);
-        return new MatchResponseDto(
-                savedMatch.getId(),
-                savedMatch.getSeason().getId(),
-                savedMatch.getMatchData()
-        );
+
+        // Atomic database increment prevents lost updates when two matches are created concurrently.
+        seasonRepository.incrementMatchesPlayed(season.getId());
+
+        log.info("Match created: matchId={}, seasonId={}, matchType={}, innings={}",
+                savedMatch.getId(), season.getId(), dto.matchType(), regularInnings.size());
+        return toResponse(savedMatch);
     }
 
-    // Mirrors the get-or-create logic in ProcessPlayerStatsService.processSingleTeam.
-    // Safe to call from both places — lookup is by name, so this never creates duplicates.
-    private Team resolveTeam(String teamName, Season season) {
-        String normalizedName = NameNormalizer.normalize(teamName);
+    private MatchResponseDto toResponse(Match match) {
+        return new MatchResponseDto(match.getId(), match.getSeason().getId(), match.getMatchData());
+    }
 
-        Team team = teamService.getTeamByName(normalizedName);
+    private String normalizeIdempotencyKey(String key) {
+        if (!hasText(key)) {
+            return null;
+        }
+        String trimmed = key.trim();
+        if (trimmed.length() > 128) {
+            throw new BadRequestException("Idempotency-Key cannot exceed 128 characters");
+        }
+        return trimmed;
+    }
+
+    private Team resolveTeam(String canonicalTeamName, Season season) {
+        Team team = teamService.getTeamByName(canonicalTeamName);
         if (team == null) {
             team = new Team();
-            team.setTeamName(normalizedName);
+            team.setTeamName(canonicalTeamName);
         }
-
         team.getSeasonsPlayed().add(season);
         return teamService.saveTeam(team);
     }
 
-    /**
-     * Limited-overs (single innings per team): flat score fields on Match are the
-     * source of truth. Each innings is matched to a team by name, not by list
-     * position — position isn't guaranteed to line up with teamA/teamB.
-     */
+    private void populateInningsSummaries(Match match, List<InningsDto> innings,
+                                          String teamAName, Team teamA, Team teamB) {
+        Map<String, Integer> perTeamCounter = new HashMap<>();
+        for (int i = 0; i < innings.size(); i++) {
+            InningsDto inning = innings.get(i);
+            Team battingTeam = inning.battingTeam().equals(teamAName) ? teamA : teamB;
+            Team bowlingTeam = battingTeam.getId().equals(teamA.getId()) ? teamB : teamA;
+            int teamInningsNumber = perTeamCounter.merge(inning.battingTeam(), 1, Integer::sum);
+
+            MatchInningsSummary summary = new MatchInningsSummary();
+            summary.setMatch(match);
+            summary.setBattingTeam(battingTeam);
+            summary.setBowlingTeam(bowlingTeam);
+            summary.setSequenceNumber(i + 1);
+            summary.setTeamInningsNumber(teamInningsNumber);
+            summary.setRuns(inning.totalRuns());
+            summary.setWickets(inning.wickets());
+            summary.setBalls(inning.balls());
+            summary.setSuperOver(false);
+            summary.setCompleted(inning.completed());
+            match.getInningsSummaries().add(summary);
+        }
+    }
+
     private void applyLimitedOversResult(Match match, List<InningsDto> regularInnings,
                                          String teamAName, String teamBName,
                                          Team teamAEntity, Team teamBEntity,
-                                         String winner, boolean hasSuperOver,
+                                         String winner, String resultType, boolean hasSuperOver,
                                          int teamASquadSize, int teamBSquadSize,
                                          String battingFirstTeamName) {
-
         for (InningsDto inning : regularInnings) {
-            if (inning.battingTeam().equalsIgnoreCase(teamAName)) {
+            if (inning.battingTeam().equals(teamAName)) {
                 match.setTeamAScore(inning.totalRuns());
                 match.setTeamAWickets(inning.wickets());
                 match.setTeamABallsFaced(inning.balls());
-            } else {
+            } else if (inning.battingTeam().equals(teamBName)) {
                 match.setTeamBScore(inning.totalRuns());
                 match.setTeamBWickets(inning.wickets());
                 match.setTeamBBallsFaced(inning.balls());
             }
         }
 
-        if (winner == null || winner.isBlank()) {
-            // No super over played and scores still level => match tied.
-            match.setIsMatchTied(true);
-            match.setWonBy("Match tied");
+        if (!hasText(winner)) {
+            if (isNoResult(resultType)) {
+                match.setWonBy("No result");
+            } else {
+                match.setIsMatchTied(true);
+                match.setWonBy("Match tied");
+            }
             return;
         }
 
-        boolean teamAWon = winner.equalsIgnoreCase(teamAName);
+        boolean teamAWon = winner.equals(teamAName);
         Team winnerEntity = teamAWon ? teamAEntity : teamBEntity;
         int winningTeamSquadSize = teamAWon ? teamASquadSize : teamBSquadSize;
-
         match.setWinnerTeam(winnerEntity);
 
         if (hasSuperOver) {
@@ -206,173 +230,137 @@ public class MatchService {
         }
 
         InningsDto winnerInnings = regularInnings.stream()
-                .filter(i -> i.battingTeam().equalsIgnoreCase(winner))
+                .filter(i -> i.battingTeam().equals(winner))
                 .findFirst()
-                .orElseThrow(() -> new RuntimeException("No innings found for winning team: " + winner));
+                .orElseThrow(() -> new BadRequestException("No regular innings found for winning team: " + winner));
         InningsDto loserInnings = regularInnings.stream()
-                .filter(i -> !i.battingTeam().equalsIgnoreCase(winner))
+                .filter(i -> !i.battingTeam().equals(winner))
                 .findFirst()
-                .orElseThrow(() -> new RuntimeException("No innings found for losing team"));
+                .orElseThrow(() -> new BadRequestException("No regular innings found for losing team"));
 
-        boolean winnerBattedFirst = winner.equalsIgnoreCase(battingFirstTeamName);
-
-        if (winnerBattedFirst) {
+        if (winner.equals(battingFirstTeamName)) {
             int margin = winnerInnings.totalRuns() - loserInnings.totalRuns();
-            match.setWinByRuns(margin);
-            match.setWonBy(winner + " won by " + margin + " runs");
+            match.setWinByRuns(Math.max(0, margin));
+            match.setWonBy(winner + " won by " + Math.max(0, margin) + " runs");
         } else {
-            // Use actual wickets fallen against the full squad size,
-            // not battingStats().size() which only counts players who batted
-            int wicketsFallen = winnerInnings.wickets();
-            int wicketsRemaining = winningTeamSquadSize - wicketsFallen - 1;
+            int wicketsRemaining = Math.max(0, (winningTeamSquadSize - 1) - winnerInnings.wickets());
             match.setWinByWickets(wicketsRemaining);
             match.setWonBy(winner + " won by " + wicketsRemaining + " wickets");
         }
     }
 
-    /**
-     * Test (up to 2 innings per team): flat score fields on Match stay at their
-     * defaults (they can't represent multiple innings). One MatchInningsSummary
-     * row is created per innings, numbered per-team (1st/2nd time that team
-     * batted) so follow-on orderings like A, B, B, A are handled correctly.
-     */
     private void applyTestResult(Match match, List<InningsDto> regularInnings,
                                  String teamAName, String teamBName,
                                  Team teamAEntity, Team teamBEntity,
-                                 String winner, int teamASquadSize, int teamBSquadSize) {
-
-        Map<String, Integer> teamInningsCounter = new HashMap<>();
-
-        for (InningsDto inning : regularInnings) {
-            String battingTeamName = inning.battingTeam();
-            Team battingTeamEntity = battingTeamName.equalsIgnoreCase(teamAName) ? teamAEntity : teamBEntity;
-            Team bowlingTeamEntity = battingTeamEntity.equals(teamAEntity) ? teamBEntity : teamAEntity;
-
-            int teamInningsNumber = teamInningsCounter.merge(battingTeamName, 1, Integer::sum);
-
-            MatchInningsSummary summary = new MatchInningsSummary();
-            summary.setMatch(match);
-            summary.setBattingTeam(battingTeamEntity);
-            summary.setBowlingTeam(bowlingTeamEntity);
-            summary.setTeamInningsNumber(teamInningsNumber);
-            summary.setRuns(inning.totalRuns());
-            summary.setWickets(inning.wickets());
-            summary.setBalls(inning.balls());
-            summary.setSuperOver(false);
-            summary.setCompleted(true);
-
-            match.getInningsSummaries().add(summary);
-        }
-
-        if (winner == null || winner.isBlank()) {
-            match.setIsMatchDrawn(true);
-            match.setWonBy("Match drawn");
+                                 String winner, String resultType, int teamASquadSize, int teamBSquadSize) {
+        if (!hasText(winner)) {
+            if (isNoResult(resultType)) {
+                match.setWonBy("No result");
+            } else {
+                match.setIsMatchDrawn(true);
+                match.setWonBy("Match drawn");
+            }
             return;
         }
 
-        boolean teamAWon = winner.equalsIgnoreCase(teamAName);
+        boolean teamAWon = winner.equals(teamAName);
         Team winnerEntity = teamAWon ? teamAEntity : teamBEntity;
         String winnerTeamName = teamAWon ? teamAName : teamBName;
         String loserTeamName = teamAWon ? teamBName : teamAName;
         int winnerSquadSize = teamAWon ? teamASquadSize : teamBSquadSize;
-
         match.setWinnerTeam(winnerEntity);
 
-        int winnerInningsCount = teamInningsCounter.getOrDefault(winnerTeamName, 0);
-        int loserInningsCount = teamInningsCounter.getOrDefault(loserTeamName, 0);
+        long winnerInningsCount = regularInnings.stream().filter(i -> i.battingTeam().equals(winnerTeamName)).count();
+        long loserInningsCount = regularInnings.stream().filter(i -> i.battingTeam().equals(loserTeamName)).count();
 
-        int winnerAggregateRuns = regularInnings.stream()
-                .filter(i -> i.battingTeam().equalsIgnoreCase(winnerTeamName))
-                .mapToInt(InningsDto::totalRuns)
-                .sum();
-        int loserAggregateRuns = regularInnings.stream()
-                .filter(i -> i.battingTeam().equalsIgnoreCase(loserTeamName))
-                .mapToInt(InningsDto::totalRuns)
-                .sum();
+        int winnerAggregateRuns = aggregateRuns(regularInnings, winnerTeamName);
+        int loserAggregateRuns = aggregateRuns(regularInnings, loserTeamName);
 
-        InningsDto lastInnings = regularInnings.get(regularInnings.size() - 1);
-        boolean winnerBattedLast = lastInnings.battingTeam().equalsIgnoreCase(winnerTeamName);
+        InningsDto lastInnings = regularInnings.getLast();
+        boolean winnerBattedLast = lastInnings.battingTeam().equals(winnerTeamName);
 
         if (winnerInningsCount < loserInningsCount) {
-            // Winner didn't need to bat twice — won by an innings.
-            int margin = winnerAggregateRuns - loserAggregateRuns;
+            int margin = Math.max(0, winnerAggregateRuns - loserAggregateRuns);
             match.setIsInningsWin(true);
             match.setWinByRuns(margin);
             match.setWonBy(winnerTeamName + " won by an innings and " + margin + " runs");
         } else if (winnerBattedLast) {
-            // Winner was chasing in the final innings.
-            int wicketsFallen = lastInnings.wickets();
-            int wicketsRemaining = winnerSquadSize - wicketsFallen - 1;
+            int wicketsRemaining = Math.max(0, (winnerSquadSize - 1) - lastInnings.wickets());
             match.setWinByWickets(wicketsRemaining);
             match.setWonBy(winnerTeamName + " won by " + wicketsRemaining + " wickets");
         } else {
-            // Winner set a target and bowled the opponent out — won by runs.
-            int margin = winnerAggregateRuns - loserAggregateRuns;
+            int margin = Math.max(0, winnerAggregateRuns - loserAggregateRuns);
             match.setWinByRuns(margin);
             match.setWonBy(winnerTeamName + " won by " + margin + " runs");
         }
     }
 
-    // =====================================================================
-    // Player name normalization
-    // =====================================================================
-    // Team names are intentionally left untouched here — resolveTeam/processSingleTeam
-    // normalize those themselves. Only the player-name fields are rewritten below, so
-    // every player ends up keyed/stored consistently regardless of how the incoming
-    // JSON capitalized or spaced their name.
+    private int aggregateRuns(List<InningsDto> innings, String teamName) {
+        return innings.stream()
+                .filter(i -> i.battingTeam().equals(teamName))
+                .mapToInt(InningsDto::totalRuns)
+                .sum();
+    }
 
-    private MatchDataDto normalizePlayerNames(MatchDataDto dto) {
+    // =====================================================================
+    // Canonicalization
+    // =====================================================================
+
+    private MatchDataDto normalizeNames(MatchDataDto dto) {
         Map<String, TeamDto> normalizedTeams = new LinkedHashMap<>();
-        if (dto.teams() != null) {
-            dto.teams().forEach((key, teamDto) -> normalizedTeams.put(key, normalizeTeamDto(teamDto)));
-        }
+        dto.teams().forEach((key, teamDto) -> normalizedTeams.put(key, normalizeTeamDto(teamDto)));
 
-        List<InningsDto> normalizedInnings = dto.innings() == null
-                ? List.of()
-                : dto.innings().stream().map(this::normalizeInnings).toList();
+        List<InningsDto> normalizedInnings = dto.innings().stream().map(this::normalizeInnings).toList();
 
         ResultDto normalizedResult = dto.result() == null ? null : new ResultDto(
-                dto.result().winner(),
+                normalize(dto.result().winner()),
                 dto.result().type(),
                 dto.result().margin(),
-                NameNormalizer.normalize(dto.result().manOfTheMatch())
+                normalize(dto.result().manOfTheMatch())
+        );
+
+        TossDto normalizedToss = dto.toss() == null ? null : new TossDto(
+                normalize(dto.toss().winner()),
+                dto.toss().decision()
         );
 
         return new MatchDataDto(
-                dto.seasonId(), normalizedTeams, dto.toss(), dto.rules(), dto.totalOvers(),
+                dto.seasonId(), normalizedTeams, normalizedToss, normalizeRules(dto.rules()), dto.totalOvers(),
                 dto.matchType(), normalizedInnings, normalizedResult
         );
     }
 
-    private TeamDto normalizeTeamDto(TeamDto teamDto) {
-        if (teamDto == null) {
-            return new TeamDto(null, List.of());
+    private RulesDto normalizeRules(RulesDto rules) {
+        if (rules != null) {
+            return rules;
         }
-        List<String> normalizedPlayers = teamDto.players() == null
-                ? List.of()
-                : teamDto.players().stream().map(NameNormalizer::normalize).toList();
-        return new TeamDto(teamDto.name(), normalizedPlayers);
+        RuleDetailDto noExtra = new RuleDetailDto(false, false);
+        return new RulesDto(noExtra, noExtra);
+    }
+
+    private TeamDto normalizeTeamDto(TeamDto teamDto) {
+        List<String> players = teamDto.players().stream().map(this::normalize).toList();
+        return new TeamDto(normalize(teamDto.name()), players);
     }
 
     private InningsDto normalizeInnings(InningsDto inning) {
-        Map<String, BattingStatDto> normalizedBatting = normalizeKeys(inning.battingStats());
-        Map<String, BowlingStatDto> normalizedBowling = normalizeKeys(inning.bowlingStats());
+        Map<String, BattingStatDto> batting = normalizeKeys(inning.battingStats());
+        Map<String, BowlingStatDto> bowling = normalizeKeys(inning.bowlingStats());
 
-        Map<String, DismissalDto> normalizedDismissals = new LinkedHashMap<>();
+        Map<String, DismissalDto> dismissals = new LinkedHashMap<>();
         if (inning.dismissals() != null) {
-            inning.dismissals().forEach((playerName, dismissal) -> normalizedDismissals.put(
-                    NameNormalizer.normalize(playerName), normalizeDismissal(dismissal)
-            ));
+            inning.dismissals().forEach((player, dismissal) -> dismissals.put(
+                    normalize(player), normalizeDismissal(dismissal)));
         }
 
-        List<BallDto> normalizedBalls = inning.ballByBall() == null
+        List<BallDto> balls = inning.ballByBall() == null
                 ? List.of()
                 : inning.ballByBall().stream().map(this::normalizeBall).toList();
 
         return new InningsDto(
-                inning.battingTeam(), inning.bowlingTeam(), inning.totalRuns(), inning.wickets(), inning.balls(),
-                normalizedBatting, normalizedBowling, inning.extras(), normalizedDismissals, normalizedBalls,
-                inning.isSuperOver(), inning.completed()
+                normalize(inning.battingTeam()), normalize(inning.bowlingTeam()),
+                inning.totalRuns(), inning.wickets(), inning.balls(), batting, bowling,
+                inning.extras(), dismissals, balls, inning.isSuperOver(), inning.completed()
         );
     }
 
@@ -381,7 +369,7 @@ public class MatchService {
             return Map.of();
         }
         Map<String, T> normalized = new LinkedHashMap<>();
-        map.forEach((playerName, value) -> normalized.put(NameNormalizer.normalize(playerName), value));
+        map.forEach((key, value) -> normalized.put(normalize(key), value));
         return normalized;
     }
 
@@ -389,22 +377,17 @@ public class MatchService {
         if (dismissal == null) {
             return null;
         }
-        return new DismissalDto(
-                dismissal.type(),
-                NameNormalizer.normalize(dismissal.bowler()),
-                NameNormalizer.normalize(dismissal.fielder())
-        );
+        return new DismissalDto(dismissal.type(), normalize(dismissal.bowler()), normalize(dismissal.fielder()));
     }
 
     private BallDto normalizeBall(BallDto ball) {
+        if (ball == null) {
+            return null;
+        }
         return new BallDto(
-                ball.over(), ball.ballInOver(), ball.actualBallNum(),
-                NameNormalizer.normalize(ball.striker()),
-                NameNormalizer.normalize(ball.nonStriker()),
-                NameNormalizer.normalize(ball.bowler()),
-                ball.runs(), ball.type(), ball.isWicket(),
-                normalizeWicket(ball.wicket()),
-                ball.timestamp()
+                ball.over(), ball.ballInOver(), ball.actualBallNum(), normalize(ball.striker()),
+                normalize(ball.nonStriker()), normalize(ball.bowler()), ball.runs(), ball.type(),
+                ball.isWicket(), normalizeWicket(ball.wicket()), ball.timestamp()
         );
     }
 
@@ -412,10 +395,22 @@ public class MatchService {
         if (wicket == null) {
             return null;
         }
-        return new WicketDto(
-                wicket.type(),
-                NameNormalizer.normalize(wicket.outBatsman()),
-                NameNormalizer.normalize(wicket.helper())
-        );
+        return new WicketDto(wicket.type(), normalize(wicket.outBatsman()), normalize(wicket.helper()));
+    }
+
+    private String normalize(String value) {
+        return NameNormalizer.normalize(value);
+    }
+
+    private boolean isNoResult(String resultType) {
+        if (!hasText(resultType)) {
+            return false;
+        }
+        String normalized = resultType.trim().replace('-', '_').replace(' ', '_').toUpperCase();
+        return normalized.equals("NO_RESULT") || normalized.equals("ABANDONED") || normalized.equals("CANCELLED");
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 }

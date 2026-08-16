@@ -1,14 +1,12 @@
-package com.gullycricket.backend.teams.reposistory;
+package com.gullycricket.backend.teams.repository;
 
 import com.gullycricket.backend.teams.entity.Team;
 import org.springframework.data.jpa.repository.JpaRepository;
+
 import java.util.List;
 
 public interface TeamRepository extends JpaRepository<Team,String> {
-
-    List<Team> findByTeamNameContainingIgnoreCase(String name);
-
+    List<Team> findTop10ByTeamNameContainingIgnoreCaseOrderByTeamNameAsc(String name);
     Team findByTeamName(String name);
-
     List<Team> findDistinctBySeasonsPlayed_Id(String seasonId);
 }

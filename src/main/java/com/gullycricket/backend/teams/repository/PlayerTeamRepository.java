@@ -1,4 +1,4 @@
-package com.gullycricket.backend.teams.reposistory;
+package com.gullycricket.backend.teams.repository;
 
 import com.gullycricket.backend.players.entity.Player;
 import com.gullycricket.backend.seasons.entity.Season;
