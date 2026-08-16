@@ -1,10 +1,10 @@
 package com.gullycricket.backend.migration.documents;
 
-import com.gullycricket.backend.migration.DTOs.MongoInningsDTO;
-import com.gullycricket.backend.migration.DTOs.MongoResultDTO;
-import com.gullycricket.backend.migration.DTOs.MongoRulesDTO;
-import com.gullycricket.backend.migration.DTOs.MongoTeamsDTO;
-import com.gullycricket.backend.migration.DTOs.MongoTossDTO;
+import com.gullycricket.backend.migration.dto.MongoInningsDTO;
+import com.gullycricket.backend.migration.dto.MongoResultDTO;
+import com.gullycricket.backend.migration.dto.MongoRulesDTO;
+import com.gullycricket.backend.migration.dto.MongoTeamsDTO;
+import com.gullycricket.backend.migration.dto.MongoTossDTO;
 import lombok.Data;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;

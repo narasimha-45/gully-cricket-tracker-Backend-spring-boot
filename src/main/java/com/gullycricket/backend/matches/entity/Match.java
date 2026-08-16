@@ -22,7 +22,8 @@ import java.util.List;
                 @Index(name = "idx_matches_season_id", columnList = "season_id"),
                 @Index(name = "idx_matches_team_a_id", columnList = "team_a_id"),
                 @Index(name = "idx_matches_team_b_id", columnList = "team_b_id"),
-                @Index(name = "idx_matches_status", columnList = "status")
+                @Index(name = "idx_matches_status", columnList = "status"),
+                @Index(name = "idx_matches_season_status_completed", columnList = "season_id,status,completed_at")
         }
 )
 @Getter
@@ -115,6 +116,12 @@ public class Match {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb")
     private JsonNode matchData;
+
+    @Column(unique = true, length = 128)
+    private String idempotencyKey;
+
+    @Version
+    private Long version;
 
     private LocalDateTime completedAt;
 }

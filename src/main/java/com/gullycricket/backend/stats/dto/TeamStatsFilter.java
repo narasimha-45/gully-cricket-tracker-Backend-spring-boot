@@ -1,4 +1,4 @@
-package com.gullycricket.backend.stats.DTOs;
+package com.gullycricket.backend.stats.dto;
 
 import com.gullycricket.backend.matches.entity.MatchType;
 

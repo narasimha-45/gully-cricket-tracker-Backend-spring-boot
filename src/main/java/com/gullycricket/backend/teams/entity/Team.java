@@ -11,7 +11,7 @@ import java.util.HashSet;
 import java.util.Set;
 
 @Entity
-@Table(name = "teams")
+@Table(name = "teams", uniqueConstraints = @UniqueConstraint(name = "uk_teams_team_name", columnNames = "team_name"))
 @AllArgsConstructor
 @NoArgsConstructor
 @Getter
@@ -22,6 +22,7 @@ public class Team {
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
 
+    @Column(name = "team_name", nullable = false, unique = true, length = 120)
     private String teamName;
 
     @ManyToMany
