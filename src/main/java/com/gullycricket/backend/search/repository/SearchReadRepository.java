@@ -36,9 +36,9 @@ public class SearchReadRepository {
                         'PLAYER'::text AS kind,
                         p.id AS entity_id,
                         p.name AS entity_name,
-                        COUNT(DISTINCT pm.match_id)::int AS metric
+                        COUNT(DISTINCT mpp.match_id)::int AS metric
                     FROM player_candidates p
-                    LEFT JOIN player_matches pm ON pm.player_id = p.id
+                    LEFT JOIN match_player_participation mpp ON mpp.player_id = p.id
                     GROUP BY p.id, p.name
                 ),
                 team_hits AS (
@@ -106,9 +106,9 @@ public class SearchReadRepository {
                 SELECT
                     p.id AS player_id,
                     p.name AS player_name,
-                    COUNT(DISTINCT pm.match_id)::int AS matches_played
+                    COUNT(DISTINCT mpp.match_id)::int AS matches_played
                 FROM candidates p
-                LEFT JOIN player_matches pm ON pm.player_id = p.id
+                LEFT JOIN match_player_participation mpp ON mpp.player_id = p.id
                 GROUP BY p.id, p.name
                 ORDER BY p.name
                 """;

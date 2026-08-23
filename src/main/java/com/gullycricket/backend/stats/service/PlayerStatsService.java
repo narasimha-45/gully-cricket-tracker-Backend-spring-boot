@@ -236,6 +236,10 @@ public class PlayerStatsService {
 
     private List<PlayerSplitStatsDto> getByInnings(List<PlayerStatReadRow> rows) {
         return rows.stream()
+                // A participation-only row has no innings because the player did not
+                // bat/bowl/field in that match. It counts as a match played, but it
+                // must not create a synthetic "Innings null" split.
+                .filter(row -> row.inningsNumber() != null)
                 .collect(Collectors.groupingBy(PlayerStatReadRow::inningsNumber))
                 .entrySet().stream()
                 .sorted(Map.Entry.comparingByKey(Comparator.nullsLast(Comparator.naturalOrder())))

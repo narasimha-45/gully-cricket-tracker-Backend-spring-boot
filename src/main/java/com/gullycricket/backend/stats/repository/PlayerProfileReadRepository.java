@@ -19,54 +19,61 @@ public class PlayerProfileReadRepository {
 
     public List<PlayerStatReadRow> findRows(String playerId, String seasonId) {
         MapSqlParameterSource params = new MapSqlParameterSource("playerId", playerId);
+        // Participation is the source of truth for whether a player played a match.
+        // player_matches is an innings/activity projection and legitimately has no row
+        // when a squad member neither bats, bowls nor records a fielding event.
         StringBuilder sql = new StringBuilder("""
                 SELECT
-                    pm.player_id,
+                    mpp.player_id,
                     p.name AS player_name,
-                    pm.match_id,
-                    pm.season_id,
+                    mpp.match_id,
+                    mpp.season_id,
                     s.season_name,
-                    pm.team_represented_id AS team_id,
+                    mpp.team_represented_id AS team_id,
                     tr.team_name,
-                    pm.opposition_team_id,
+                    mpp.opposition_team_id,
                     ot.team_name AS opponent_team_name,
                     pm.innings_number,
-                    pm.match_won,
-                    pm.player_of_the_match,
-                    pm.batted,
+                    mpp.match_won,
+                    mpp.player_of_the_match,
+                    COALESCE(pm.batted, FALSE) AS batted,
                     pm.batting_position,
-                    pm.runs_scored,
-                    pm.balls_faced,
-                    pm.fours_hit,
-                    pm.sixes_hit,
-                    pm.out,
-                    pm.dot_balls_played,
-                    pm.bowled,
-                    pm.wickets_taken,
-                    pm.balls_bowled,
-                    pm.runs_conceded,
-                    pm.maidens_bowled,
-                    pm.dot_balls_bowled,
-                    pm.catches_taken,
-                    pm.run_outs,
-                    pm.stumpings,
+                    COALESCE(pm.runs_scored, 0) AS runs_scored,
+                    COALESCE(pm.balls_faced, 0) AS balls_faced,
+                    COALESCE(pm.fours_hit, 0) AS fours_hit,
+                    COALESCE(pm.sixes_hit, 0) AS sixes_hit,
+                    COALESCE(pm.out, FALSE) AS out,
+                    COALESCE(pm.dot_balls_played, 0) AS dot_balls_played,
+                    COALESCE(pm.bowled, FALSE) AS bowled,
+                    COALESCE(pm.wickets_taken, 0) AS wickets_taken,
+                    COALESCE(pm.balls_bowled, 0) AS balls_bowled,
+                    COALESCE(pm.runs_conceded, 0) AS runs_conceded,
+                    COALESCE(pm.maidens_bowled, 0) AS maidens_bowled,
+                    COALESCE(pm.dot_balls_bowled, 0) AS dot_balls_bowled,
+                    COALESCE(pm.catches_taken, 0) AS catches_taken,
+                    COALESCE(pm.run_outs, 0) AS run_outs,
+                    COALESCE(pm.stumpings, 0) AS stumpings,
                     COALESCE(m.is_match_tied, FALSE) AS match_tied,
                     COALESCE(m.is_match_drawn, FALSE) AS match_drawn,
                     m.winner_team_id,
                     m.completed_at
-                FROM player_matches pm
-                JOIN players p ON p.id = pm.player_id
-                JOIN matches m ON m.id = pm.match_id
-                JOIN seasons s ON s.id = pm.season_id
-                JOIN teams tr ON tr.id = pm.team_represented_id
-                JOIN teams ot ON ot.id = pm.opposition_team_id
-                WHERE pm.player_id = :playerId
+                FROM match_player_participation mpp
+                JOIN players p ON p.id = mpp.player_id
+                JOIN matches m ON m.id = mpp.match_id
+                JOIN seasons s ON s.id = mpp.season_id
+                JOIN teams tr ON tr.id = mpp.team_represented_id
+                JOIN teams ot ON ot.id = mpp.opposition_team_id
+                LEFT JOIN player_matches pm
+                    ON pm.player_id = mpp.player_id
+                   AND pm.match_id = mpp.match_id
+                   AND pm.team_represented_id = mpp.team_represented_id
+                WHERE mpp.player_id = :playerId
                 """);
         if (seasonId != null && !seasonId.isBlank()) {
-            sql.append(" AND pm.season_id = :seasonId");
+            sql.append(" AND mpp.season_id = :seasonId");
             params.addValue("seasonId", seasonId.trim());
         }
-        sql.append(" ORDER BY m.completed_at DESC NULLS LAST, pm.innings_number DESC");
+        sql.append(" ORDER BY m.completed_at DESC NULLS LAST, pm.innings_number DESC NULLS LAST");
         return queryTimer.record("stats.playerProfileRows", () -> jdbc.query(sql.toString(), params, this::mapRow));
     }
 
