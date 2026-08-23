@@ -5,6 +5,7 @@ import com.gullycricket.backend.matches.entity.Match;
 import com.gullycricket.backend.matches.entity.MatchType;
 import com.gullycricket.backend.players.entity.Player;
 import com.gullycricket.backend.players.entity.PlayerMatch;
+import com.gullycricket.backend.players.entity.MatchPlayerParticipation;
 import com.gullycricket.backend.players.entity.PlayerPartnerships;
 import com.gullycricket.backend.players.entity.PlayerRivalry;
 import com.gullycricket.backend.seasons.entity.Season;
@@ -27,5 +28,6 @@ public record ProcessingContext(
         Map<String, PlayerMatch> playerMatchMap,
         Map<String, PlayerPartnerships> partnershipMap,
         Map<String, PlayerRivalry> rivalryMap,
+        Map<String, MatchPlayerParticipation> participationMap,
         List<PlayerTeam> playerTeams
 ) {}

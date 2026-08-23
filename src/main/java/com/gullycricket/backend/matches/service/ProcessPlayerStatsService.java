@@ -6,6 +6,7 @@ import com.gullycricket.backend.matches.dto.*;
 import com.gullycricket.backend.matches.entity.Match;
 import com.gullycricket.backend.players.entity.*;
 import com.gullycricket.backend.players.repository.PlayerMatchRepository;
+import com.gullycricket.backend.players.repository.MatchPlayerParticipationRepository;
 import com.gullycricket.backend.players.repository.PlayerPartnershipsRepository;
 import com.gullycricket.backend.players.repository.PlayerRivalryRepository;
 import com.gullycricket.backend.players.service.PlayerService;
@@ -33,6 +34,7 @@ public class ProcessPlayerStatsService {
     private final PlayerTeamService playerTeamService;
     private final SeasonPlayerRepository seasonPlayerRepository;
     private final PlayerMatchRepository playerMatchRepository;
+    private final MatchPlayerParticipationRepository matchPlayerParticipationRepository;
     private final PlayerPartnershipsRepository playerPartnershipsRepository;
     private final PlayerRivalryRepository playerRivalryRepository;
 
@@ -43,6 +45,7 @@ public class ProcessPlayerStatsService {
         ProcessingContext ctx = createContext(match, matchData, season);
 
         processTeams(ctx, matchData.teams());
+        processMatchParticipation(ctx, matchData.teams());
         processBattingStats(ctx, matchData.innings());
         processBowlingStats(ctx, matchData.innings());
         processFieldingStats(ctx, matchData.innings());
@@ -70,6 +73,7 @@ public class ProcessPlayerStatsService {
                 playerMap,
                 new HashMap<>(),
                 seasonPlayerIds,
+                new HashMap<>(),
                 new HashMap<>(),
                 new HashMap<>(),
                 new HashMap<>(),
@@ -118,6 +122,40 @@ public class ProcessPlayerStatsService {
                 playerTeam.setActive(true);
                 ctx.playerTeams().add(playerTeam);
             }
+        }
+    }
+
+    private void processMatchParticipation(ProcessingContext ctx, Map<String, TeamDto> teams) {
+        TeamDto teamA = teams.get("teamA");
+        TeamDto teamB = teams.get("teamB");
+        if (teamA == null || teamB == null) {
+            throw new BadRequestException("Both match teams are required to build participation stats");
+        }
+        addParticipationForTeam(ctx, teamA, teamB);
+        addParticipationForTeam(ctx, teamB, teamA);
+    }
+
+    private void addParticipationForTeam(ProcessingContext ctx, TeamDto teamDto, TeamDto opponentDto) {
+        Team represented = team(ctx, teamDto.name());
+        Team opponent = team(ctx, opponentDto.name());
+        for (String rawPlayerName : teamDto.players()) {
+            String playerName = canonical(rawPlayerName);
+            Player player = ctx.playerMap().get(playerName);
+            if (player == null) {
+                throw new BadRequestException("Player not found in match squad: " + playerName);
+            }
+            ctx.participationMap().computeIfAbsent(playerName + "_" + represented.getId(), ignored -> {
+                MatchPlayerParticipation participation = new MatchPlayerParticipation();
+                participation.setPlayer(player);
+                participation.setMatch(ctx.match());
+                participation.setSeason(ctx.season());
+                participation.setTeamRepresented(represented);
+                participation.setOppositionTeam(opponent);
+                participation.setMatchType(ctx.matchType());
+                participation.setMatchWon(isWinningTeam(ctx.match(), represented));
+                participation.setPlayerOfTheMatch(Objects.equals(ctx.playerOfTheMatch(), playerName));
+                return participation;
+            });
         }
     }
 
@@ -504,6 +542,9 @@ public class ProcessPlayerStatsService {
         }
         if (!ctx.playerTeams().isEmpty()) {
             playerTeamService.saveListOfPlayerTeams(ctx.playerTeams());
+        }
+        if (!ctx.participationMap().isEmpty()) {
+            matchPlayerParticipationRepository.saveAll(ctx.participationMap().values());
         }
         if (!ctx.playerMatchMap().isEmpty()) {
             playerMatchRepository.saveAll(ctx.playerMatchMap().values());
