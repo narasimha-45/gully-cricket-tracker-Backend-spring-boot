@@ -5,7 +5,6 @@ import com.gullycricket.backend.stats.dto.*;
 import com.gullycricket.backend.stats.enums.*;
 import com.gullycricket.backend.stats.service.PlayerStatsService;
 import com.gullycricket.backend.stats.service.TeamStatsService;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -13,11 +12,15 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/stats")
-@RequiredArgsConstructor
 public class StatsController {
 
     private final PlayerStatsService playerStatsService;
     private final TeamStatsService teamStatsService;
+
+    public StatsController(PlayerStatsService playerStatsService, TeamStatsService teamStatsService) {
+        this.playerStatsService = playerStatsService;
+        this.teamStatsService = teamStatsService;
+    }
 
     // =====================================================================
     // Player profile
@@ -29,6 +32,89 @@ public class StatsController {
             @RequestParam(required = false) String seasonId
     ) {
         return ResponseEntity.ok(playerStatsService.getPlayerProfile(playerId, seasonId));
+    }
+
+    @GetMapping("/player/compare")
+    public ResponseEntity<PlayerComparisonDto> comparePlayers(
+            @RequestParam String player1Id,
+            @RequestParam String player2Id,
+            @RequestParam(required = false) String seasonId
+    ) {
+        return ResponseEntity.ok(playerStatsService.comparePlayers(player1Id, player2Id, seasonId));
+    }
+
+    @GetMapping("/leaderboard/partnerships/innings")
+    public ResponseEntity<List<PartnershipInningsDto>> getPartnerships(
+            @RequestParam(required = false) String seasonId,
+            @RequestParam(required = false) MatchType matchType,
+            @RequestParam(required = false) String teamId,
+            @RequestParam(required = false) String opponentTeamId,
+            @RequestParam(required = false) Integer inningsNumber,
+            @RequestParam(required = false) MatchResult result,
+            @RequestParam(required = false) Integer partnershipNumber,
+            @RequestParam(required = false) String playerId,
+            @RequestParam(required = false) String partnerId,
+            @RequestParam(required = false) Boolean battingFirst,
+            @RequestParam(required = false) Integer limit
+    ) {
+        PartnershipStatsFilter filter = new PartnershipStatsFilter(
+                seasonId, matchType, teamId, opponentTeamId, inningsNumber, result,
+                partnershipNumber, playerId, partnerId, battingFirst
+        );
+        return ResponseEntity.ok(playerStatsService.getPartnershipInnings(filter, limit));
+    }
+
+    @GetMapping("/leaderboard/partnerships/aggregated")
+    public ResponseEntity<List<PartnershipStatsResponse>> getPartnershipsAggregated(
+            @RequestParam(required = false) String seasonId,
+            @RequestParam(required = false) MatchType matchType,
+            @RequestParam(required = false) String teamId,
+            @RequestParam(required = false) String opponentTeamId,
+            @RequestParam(required = false) Integer inningsNumber,
+            @RequestParam(required = false) MatchResult result,
+            @RequestParam(required = false) Integer partnershipNumber,
+            @RequestParam(required = false) String playerId,
+            @RequestParam(required = false) String partnerId,
+            @RequestParam(required = false) Boolean battingFirst,
+            @RequestParam(required = false) Integer limit
+    ) {
+        PartnershipStatsFilter filter = new PartnershipStatsFilter(
+                seasonId, matchType, teamId, opponentTeamId, inningsNumber, result,
+                partnershipNumber, playerId, partnerId, battingFirst
+        );
+        return ResponseEntity.ok(playerStatsService.getPartnershipAggregatedStats(filter, limit));
+    }
+
+    @GetMapping("/partnerships/history")
+    public ResponseEntity<List<PartnershipInningsDto>> getPartnershipHistory(
+            @RequestParam String playerId,
+            @RequestParam String partnerId,
+            @RequestParam(required = false) String seasonId,
+            @RequestParam(required = false) Integer limit
+    ) {
+        return ResponseEntity.ok(playerStatsService.getPartnershipHistory(playerId, partnerId, seasonId, limit));
+    }
+
+    @GetMapping("/rivalries")
+    public ResponseEntity<List<RivalryStatsResponse>> getRivalries(
+            @RequestParam(required = false) String seasonId,
+            @RequestParam(required = false) MatchType matchType,
+            @RequestParam(required = false) String teamId,
+            @RequestParam(required = false) String opponentTeamId,
+            @RequestParam(required = false) Integer inningsNumber,
+            @RequestParam(required = false) MatchResult matchResult,
+            @RequestParam(required = false) String batsmanId,
+            @RequestParam(required = false) String bowlerId,
+            @RequestParam(required = false) Integer minBallsFaced,
+            @RequestParam(required = false) Integer minRuns,
+            @RequestParam(required = false) Integer minDismissals,
+            @RequestParam(required = false) Integer limit
+    ) {
+        RivalryStatsFilter filter = new RivalryStatsFilter(
+                seasonId, matchType, teamId, opponentTeamId, inningsNumber, matchResult,
+                batsmanId, bowlerId, minBallsFaced, minRuns, minDismissals
+        );
+        return ResponseEntity.ok(playerStatsService.getRivalryStats(filter, limit));
     }
 
     // =====================================================================
