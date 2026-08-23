@@ -2,15 +2,11 @@ package com.gullycricket.backend.matches.service;
 
 import com.gullycricket.backend.common.exception.BadRequestException;
 import com.gullycricket.backend.common.util.NameNormalizer;
-import com.gullycricket.backend.matches.dto.BallDto;
-import com.gullycricket.backend.matches.dto.InningsDto;
-import com.gullycricket.backend.matches.dto.MatchDataDto;
-import com.gullycricket.backend.matches.dto.TeamDto;
+import com.gullycricket.backend.matches.dto.*;
 import org.springframework.stereotype.Component;
 
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -53,20 +49,17 @@ public class MatchValidator {
         if (dto.result() != null) {
             String winner = canonical(dto.result().winner());
             if (hasText(winner)) {
-                require(winner.equals(teamAName) || winner.equals(teamBName),
-                        "result.winner must be teamA or teamB");
+                require(winner.equals(teamAName) || winner.equals(teamBName), "result.winner must be teamA or teamB");
             }
             String motm = canonical(dto.result().manOfTheMatch());
             if (hasText(motm)) {
-                require(teamAPlayers.contains(motm) || teamBPlayers.contains(motm),
-                        "result.manOfTheMatch must be a player in this match");
+                require(teamAPlayers.contains(motm) || teamBPlayers.contains(motm), "result.manOfTheMatch must be a player in this match");
             }
         }
 
         if (dto.toss() != null && hasText(dto.toss().winner())) {
             String tossWinner = canonical(dto.toss().winner());
-            require(tossWinner.equals(teamAName) || tossWinner.equals(teamBName),
-                    "toss.winner must be teamA or teamB");
+            require(tossWinner.equals(teamAName) || tossWinner.equals(teamBName), "toss.winner must be teamA or teamB");
         }
     }
 
@@ -83,8 +76,7 @@ public class MatchValidator {
         }
     }
 
-    private void validateInnings(InningsDto inning, int sequence, String teamAName, String teamBName,
-                                 Set<String> teamAPlayers, Set<String> teamBPlayers) {
+    private void validateInnings(InningsDto inning, int sequence, String teamAName, String teamBName, Set<String> teamAPlayers, Set<String> teamBPlayers) {
         require(inning != null, "innings[" + (sequence - 1) + "] is required");
         String battingTeam = canonical(inning.battingTeam());
         String bowlingTeam = canonical(inning.bowlingTeam());
@@ -106,8 +98,7 @@ public class MatchValidator {
                 String p = canonical(player);
                 require(battingPlayers.contains(p), "Batting stat player is not in batting team: " + p);
                 if (stat != null) {
-                    require(stat.runs() >= 0 && stat.balls() >= 0 && stat.fours() >= 0 && stat.sixes() >= 0,
-                            "Batting stats cannot contain negative values for " + p);
+                    require(stat.runs() >= 0 && stat.balls() >= 0 && stat.fours() >= 0 && stat.sixes() >= 0, "Batting stats cannot contain negative values for " + p);
                 }
             });
         }
@@ -117,8 +108,7 @@ public class MatchValidator {
                 String p = canonical(player);
                 require(bowlingPlayers.contains(p), "Bowling stat player is not in bowling team: " + p);
                 if (stat != null) {
-                    require(stat.balls() >= 0 && stat.runs() >= 0 && stat.wickets() >= 0 && stat.maidens() >= 0,
-                            "Bowling stats cannot contain negative values for " + p);
+                    require(stat.balls() >= 0 && stat.runs() >= 0 && stat.wickets() >= 0 && stat.maidens() >= 0, "Bowling stats cannot contain negative values for " + p);
                 }
             });
         }
@@ -128,7 +118,19 @@ public class MatchValidator {
                 if (ball == null) {
                     continue;
                 }
+
                 require(ball.type() != null, "Ball type is required");
+
+                if (ball.type() == BallType.RETIRE) {
+
+                    require(battingPlayers.contains(canonical(ball.striker())), "Unknown retired player: " + ball.striker());
+
+                    if (hasText(ball.nonStriker())) {
+                        require(battingPlayers.contains(canonical(ball.nonStriker())), "Unknown non-striker: " + ball.nonStriker());
+                    }
+
+                    continue;
+                }
                 require(ball.runs() >= 0, "Ball runs cannot be negative");
                 require(battingPlayers.contains(canonical(ball.striker())), "Unknown striker: " + ball.striker());
                 if (hasText(ball.nonStriker())) {
@@ -138,11 +140,9 @@ public class MatchValidator {
 
                 if (ball.isWicket()) {
                     require(ball.wicket() != null, "Wicket details are required when isWicket=true");
-                    require(battingPlayers.contains(canonical(ball.wicket().outBatsman())),
-                            "Wicket outBatsman is not in batting team: " + ball.wicket().outBatsman());
+                    require(battingPlayers.contains(canonical(ball.wicket().outBatsman())), "Wicket outBatsman is not in batting team: " + ball.wicket().outBatsman());
                     if (hasText(ball.wicket().helper())) {
-                        require(bowlingPlayers.contains(canonical(ball.wicket().helper())),
-                                "Wicket helper is not in fielding team: " + ball.wicket().helper());
+                        require(bowlingPlayers.contains(canonical(ball.wicket().helper())), "Wicket helper is not in fielding team: " + ball.wicket().helper());
                     }
                 }
             }

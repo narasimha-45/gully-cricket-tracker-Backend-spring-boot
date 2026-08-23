@@ -15,7 +15,7 @@ public record PlayerProfileDto(
         BowlingStatsResponse overallBowling,
         FieldingAndMiscStatsResponse overallFielding,
 
-        List<RecentInningDto> recentForm,
+        List<RecentPerformanceDto> recentPerformances,
 
         List<BattingPositionStatsDto> byBattingPosition,
 

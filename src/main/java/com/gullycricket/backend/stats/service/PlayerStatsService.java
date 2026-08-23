@@ -5,15 +5,10 @@ import com.gullycricket.backend.config.CacheNames;
 import com.gullycricket.backend.players.entity.Player;
 import com.gullycricket.backend.players.repository.PlayerRepository;
 import com.gullycricket.backend.stats.dto.*;
-import com.gullycricket.backend.stats.enums.BattingSortBy;
-import com.gullycricket.backend.stats.enums.BestBowlingFigures;
-import com.gullycricket.backend.stats.enums.BowlingSortBy;
-import com.gullycricket.backend.stats.enums.FieldingSortBy;
-import com.gullycricket.backend.stats.enums.MatchResult;
+import com.gullycricket.backend.stats.enums.*;
 import com.gullycricket.backend.stats.repository.PlayerProfileReadRepository;
 import com.gullycricket.backend.stats.repository.PlayerStatReadRow;
 import com.gullycricket.backend.stats.repository.StatsReadRepository;
-import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
@@ -22,12 +17,29 @@ import java.util.function.ToIntFunction;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 public class PlayerStatsService {
 
     private final PlayerRepository playerRepository;
     private final StatsReadRepository statsReadRepository;
     private final PlayerProfileReadRepository playerProfileReadRepository;
+
+    public PlayerStatsService(PlayerRepository playerRepository, StatsReadRepository statsReadRepository, PlayerProfileReadRepository playerProfileReadRepository) {
+        this.playerRepository = playerRepository;
+        this.statsReadRepository = statsReadRepository;
+        this.playerProfileReadRepository = playerProfileReadRepository;
+    }
+
+    private static double toCricketOvers(int balls) {
+        return (balls / 6) + ((balls % 6) / 10.0);
+    }
+
+    private static Double battingAverage(int runs, int outs) {
+        return outs == 0 ? null : round2((double) runs / outs);
+    }
+
+    private static double round2(double value) {
+        return Math.round(value * 100.0) / 100.0;
+    }
 
     // Leaderboards are aggregated in PostgreSQL and never hydrate Match.matchData.
     @Cacheable(value = CacheNames.BATTING_LEADERBOARD, sync = true)
@@ -45,6 +57,72 @@ public class PlayerStatsService {
         return statsReadRepository.findFieldingLeaderboard(filter, sortBy, limit);
     }
 
+    public List<PartnershipInningsDto> getPartnershipInnings(PartnershipStatsFilter filter, Integer limit) {
+        return statsReadRepository.findPartnershipInnings(filter, limit);
+    }
+
+    /** Backward-compatible service alias for existing callers. */
+    public List<PartnershipInningsDto> getPartnershipStats(PartnershipStatsFilter filter, Integer limit) {
+        return getPartnershipInnings(filter, limit);
+    }
+
+    public List<PartnershipStatsResponse> getPartnershipAggregatedStats(PartnershipStatsFilter filter, Integer limit) {
+        return statsReadRepository.findPartnershipAggregatedStats(filter, limit);
+    }
+
+    public List<PartnershipInningsDto> getPartnershipHistory(String playerId, String partnerId, String seasonId, Integer limit) {
+        return statsReadRepository.findPartnershipHistory(playerId, partnerId, seasonId, limit);
+    }
+
+    public List<RivalryStatsResponse> getRivalryStats(RivalryStatsFilter filter, Integer limit) {
+        return statsReadRepository.findRivalryStats(filter, limit);
+    }
+
+    public List<RivalryInningsDto> getRivalryInnings(RivalryStatsFilter filter, Integer limit) {
+        return statsReadRepository.findRivalryInnings(filter, limit);
+    }
+
+    public PlayerVsPlayerDto getPlayerVsPlayer(String player1Id, String player2Id, String seasonId) {
+        Player player1 = playerRepository.findById(player1Id)
+                .orElseThrow(() -> new ResourceNotFoundException("Player not found: " + player1Id));
+        Player player2 = playerRepository.findById(player2Id)
+                .orElseThrow(() -> new ResourceNotFoundException("Player not found: " + player2Id));
+
+        RivalryStatsResponse player1Batting = firstOrNull(statsReadRepository.findRivalryStats(
+                new RivalryStatsFilter(seasonId, null, null, null, null, null, player1Id, player2Id, null, null, null), 1));
+        RivalryStatsResponse player2Batting = firstOrNull(statsReadRepository.findRivalryStats(
+                new RivalryStatsFilter(seasonId, null, null, null, null, null, player2Id, player1Id, null, null, null), 1));
+        PartnershipStatsResponse partnership = firstOrNull(statsReadRepository.findPartnershipAggregatedStats(
+                new PartnershipStatsFilter(seasonId, null, null, null, null, null, null, player1Id, player2Id, null), 1));
+
+        return new PlayerVsPlayerDto(
+                seasonId, player1Id, player1.getName(), player2Id, player2.getName(),
+                player1Batting, player2Batting, partnership
+        );
+    }
+
+    private static <T> T firstOrNull(List<T> values) {
+        return values == null || values.isEmpty() ? null : values.getFirst();
+    }
+
+    public PlayerComparisonDto comparePlayers(String player1Id, String player2Id, String seasonId) {
+        PlayerProfileDto first = getPlayerProfile(player1Id, seasonId);
+        PlayerProfileDto second = getPlayerProfile(player2Id, seasonId);
+        return new PlayerComparisonDto(
+                seasonId,
+                comparisonSide(first),
+                comparisonSide(second)
+        );
+    }
+
+    private PlayerComparisonSideDto comparisonSide(PlayerProfileDto profile) {
+        return new PlayerComparisonSideDto(
+                profile.playerId(), profile.playerName(), profile.totalMatchesPlayed(), profile.totalMatchesWon(),
+                profile.winPercentage(), profile.playerOfTheMatchAwards(), profile.overallBatting(),
+                profile.overallBowling(), profile.overallFielding()
+        );
+    }
+
     public PlayerProfileDto getPlayerProfile(String playerId, String seasonId) {
         List<PlayerStatReadRow> rows = playerProfileReadRepository.findRows(playerId, seasonId);
         String name;
@@ -56,21 +134,26 @@ public class PlayerStatsService {
             name = rows.getFirst().playerName();
         }
 
-        Set<String> matchIds = distinctMatches(rows);
-        Set<String> wonMatchIds = rows.stream().filter(PlayerStatReadRow::matchWon).map(PlayerStatReadRow::matchId).collect(Collectors.toSet());
-        int motm = (int) rows.stream().filter(PlayerStatReadRow::playerOfTheMatch).map(PlayerStatReadRow::matchId).distinct().count();
+        PlayerParticipationSummaryDto participation = statsReadRepository.findPlayerParticipationSummary(playerId, seasonId);
+        int matchesPlayed = participation == null ? distinctMatches(rows).size() : participation.matchesPlayed();
+        int matchesWon = participation == null
+                ? (int) rows.stream().filter(PlayerStatReadRow::matchWon).map(PlayerStatReadRow::matchId).distinct().count()
+                : participation.matchesWon();
+        int motm = participation == null
+                ? (int) rows.stream().filter(PlayerStatReadRow::playerOfTheMatch).map(PlayerStatReadRow::matchId).distinct().count()
+                : participation.playerOfTheMatchAwards();
 
         return new PlayerProfileDto(
                 playerId,
                 name,
-                matchIds.size(),
-                wonMatchIds.size(),
-                round2(matchIds.isEmpty() ? 0 : wonMatchIds.size() * 100.0 / matchIds.size()),
+                matchesPlayed,
+                matchesWon,
+                round2(matchesPlayed == 0 ? 0 : matchesWon * 100.0 / matchesPlayed),
                 motm,
-                computeBatting(playerId, name, rows),
-                computeBowling(playerId, name, rows),
-                computeFielding(playerId, name, rows),
-                getRecentForm(rows, 3),
+                computeBatting(playerId, name, rows, matchesPlayed),
+                computeBowling(playerId, name, rows, matchesPlayed),
+                computeFielding(playerId, name, rows, matchesPlayed),
+                getRecentPerformances(rows, 5),
                 getByBattingPosition(rows),
                 getByInnings(rows),
                 getByMatchResult(rows),
@@ -79,17 +162,47 @@ public class PlayerStatsService {
         );
     }
 
-    private List<RecentInningDto> getRecentForm(List<PlayerStatReadRow> rows, int count) {
-        return rows.stream()
-                .filter(PlayerStatReadRow::batted)
-                .sorted(Comparator.comparing(PlayerStatReadRow::completedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+    private List<RecentPerformanceDto> getRecentPerformances(List<PlayerStatReadRow> rows, int count) {
+        List<PlayerStatReadRow> sorted = rows.stream()
+                .sorted(Comparator.comparing(PlayerStatReadRow::completedAt,
+                        Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
+
+        Map<String, List<PlayerStatReadRow>> byMatch = new LinkedHashMap<>();
+        for (PlayerStatReadRow row : sorted) {
+            byMatch.computeIfAbsent(row.matchId(), ignored -> new ArrayList<>()).add(row);
+        }
+
+        return byMatch.values().stream()
                 .limit(count)
-                .map(row -> new RecentInningDto(
-                        row.matchId(), row.seasonId(), row.seasonName(),
-                        row.teamId(), row.teamName(), row.opponentTeamId(), row.opponentTeamName(),
-                        row.battingPosition(), row.runsScored(), row.ballsFaced(), row.foursHit(), row.sixesHit(),
-                        row.out(), row.matchWon(), row.completedAt()
-                ))
+                .map(matchRows -> {
+                    PlayerStatReadRow any = matchRows.getFirst();
+                    List<RecentBattingPerformanceDto> batting = matchRows.stream()
+                            .filter(PlayerStatReadRow::batted)
+                            .sorted(Comparator.comparing(PlayerStatReadRow::inningsNumber,
+                                    Comparator.nullsLast(Comparator.naturalOrder())))
+                            .map(row -> new RecentBattingPerformanceDto(
+                                    row.inningsNumber(), row.battingPosition(), row.runsScored(), row.ballsFaced(),
+                                    row.foursHit(), row.sixesHit(), row.out()))
+                            .toList();
+                    List<RecentBowlingPerformanceDto> bowling = matchRows.stream()
+                            .filter(PlayerStatReadRow::bowled)
+                            .sorted(Comparator.comparing(PlayerStatReadRow::inningsNumber,
+                                    Comparator.nullsLast(Comparator.naturalOrder())))
+                            .map(row -> new RecentBowlingPerformanceDto(
+                                    row.inningsNumber(), row.wicketsTaken(), row.runsConceded(), row.ballsBowled(),
+                                    toCricketOvers(row.ballsBowled()), row.maidensBowled(), row.dotBallsBowled()))
+                            .toList();
+
+                    return new RecentPerformanceDto(
+                            any.matchId(), any.seasonId(), any.seasonName(), any.teamId(), any.teamName(),
+                            any.opponentTeamId(), any.opponentTeamName(), any.matchWon(), resultOf(any), any.completedAt(),
+                            batting, bowling,
+                            sum(matchRows, PlayerStatReadRow::catchesTaken),
+                            sum(matchRows, PlayerStatReadRow::runOuts),
+                            sum(matchRows, PlayerStatReadRow::stumpings)
+                    );
+                })
                 .toList();
     }
 
@@ -113,7 +226,7 @@ public class PlayerStatsService {
         int highest = rows.stream().mapToInt(PlayerStatReadRow::runsScored).max().orElse(0);
         return new BattingPositionStatsDto(
                 position, innings, notOuts, runs, balls,
-                round2(outs == 0 ? runs : (double) runs / outs),
+                battingAverage(runs, outs),
                 round2(balls == 0 ? 0 : runs * 100.0 / balls),
                 highest,
                 sum(rows, PlayerStatReadRow::foursHit),
@@ -170,7 +283,7 @@ public class PlayerStatsService {
         return new PlayerSplitStatsDto(
                 key, label, matchIds.size(), wins,
                 batted.size(), runs, balls,
-                round2(outs == 0 ? runs : (double) runs / outs),
+                battingAverage(runs, outs),
                 round2(balls == 0 ? 0 : runs * 100.0 / balls), highest,
                 bowled.size(), wickets, conceded,
                 round2(ballsBowled == 0 ? 0 : conceded * 6.0 / ballsBowled),
@@ -204,7 +317,7 @@ public class PlayerStatsService {
         return new SeasonPlayerStatsDto(
                 any.seasonId(), any.seasonName(), matchIds.size(), wins,
                 batted.size(), runs,
-                round2(outs == 0 ? runs : (double) runs / outs),
+                battingAverage(runs, outs),
                 round2(balls == 0 ? 0 : runs * 100.0 / balls),
                 batted.stream().mapToInt(PlayerStatReadRow::runsScored).max().orElse(0),
                 (int) batted.stream().filter(row -> row.runsScored() >= 50 && row.runsScored() < 100).count(),
@@ -246,7 +359,7 @@ public class PlayerStatsService {
                 any.teamId(), any.teamName(), matchIds.size(), wins,
                 round2(matchIds.isEmpty() ? 0 : wins * 100.0 / matchIds.size()),
                 batted.size(), runs,
-                round2(outs == 0 ? runs : (double) runs / outs),
+                battingAverage(runs, outs),
                 round2(balls == 0 ? 0 : runs * 100.0 / balls),
                 batted.stream().mapToInt(PlayerStatReadRow::runsScored).max().orElse(0),
                 bowled.size(), wickets,
@@ -259,7 +372,7 @@ public class PlayerStatsService {
         );
     }
 
-    private BattingStatsResponse computeBatting(String playerId, String playerName, List<PlayerStatReadRow> rows) {
+    private BattingStatsResponse computeBatting(String playerId, String playerName, List<PlayerStatReadRow> rows, int totalMatchesPlayed) {
         List<PlayerStatReadRow> batted = rows.stream().filter(PlayerStatReadRow::batted).toList();
         int runs = sum(batted, PlayerStatReadRow::runsScored);
         int balls = sum(batted, PlayerStatReadRow::ballsFaced);
@@ -271,16 +384,16 @@ public class PlayerStatsService {
                 sum(batted, PlayerStatReadRow::foursHit),
                 sum(batted, PlayerStatReadRow::sixesHit),
                 notOuts,
-                round2(outs == 0 ? runs : (double) runs / outs),
+                battingAverage(runs, outs),
                 batted.stream().mapToInt(PlayerStatReadRow::runsScored).max().orElse(0),
                 (int) batted.stream().filter(row -> row.out() && row.runsScored() == 0).count(),
-                distinctMatches(rows).size(),
+                totalMatchesPlayed,
                 batted.size(),
                 sum(batted, PlayerStatReadRow::dotBallsPlayed)
         );
     }
 
-    private BowlingStatsResponse computeBowling(String playerId, String playerName, List<PlayerStatReadRow> rows) {
+    private BowlingStatsResponse computeBowling(String playerId, String playerName, List<PlayerStatReadRow> rows, int totalMatchesPlayed) {
         List<PlayerStatReadRow> bowled = rows.stream().filter(PlayerStatReadRow::bowled).toList();
         int wickets = sum(bowled, PlayerStatReadRow::wicketsTaken);
         int conceded = sum(bowled, PlayerStatReadRow::runsConceded);
@@ -302,19 +415,19 @@ public class PlayerStatsService {
                 best,
                 (int) bowled.stream().filter(row -> row.wicketsTaken() >= 5).count(),
                 (int) byMatch.values().stream().filter(value -> value >= 10).count(),
-                distinctMatches(rows).size(),
+                totalMatchesPlayed,
                 bowled.size(),
                 sum(bowled, PlayerStatReadRow::dotBallsBowled)
         );
     }
 
-    private FieldingAndMiscStatsResponse computeFielding(String playerId, String playerName, List<PlayerStatReadRow> rows) {
+    private FieldingAndMiscStatsResponse computeFielding(String playerId, String playerName, List<PlayerStatReadRow> rows, int totalMatchesPlayed) {
         return new FieldingAndMiscStatsResponse(
                 playerId, playerName,
                 sum(rows, PlayerStatReadRow::catchesTaken),
                 sum(rows, PlayerStatReadRow::runOuts),
                 sum(rows, PlayerStatReadRow::stumpings),
-                distinctMatches(rows).size(),
+                totalMatchesPlayed,
                 (int) rows.stream().filter(PlayerStatReadRow::playerOfTheMatch).map(PlayerStatReadRow::matchId).distinct().count()
         );
     }
@@ -325,13 +438,5 @@ public class PlayerStatsService {
 
     private int sum(List<PlayerStatReadRow> rows, ToIntFunction<PlayerStatReadRow> mapper) {
         return rows.stream().mapToInt(mapper).sum();
-    }
-
-    private static double toCricketOvers(int balls) {
-        return (balls / 6) + ((balls % 6) / 10.0);
-    }
-
-    private static double round2(double value) {
-        return Math.round(value * 100.0) / 100.0;
     }
 }

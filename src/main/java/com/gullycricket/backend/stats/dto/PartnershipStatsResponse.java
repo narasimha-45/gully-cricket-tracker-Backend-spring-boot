@@ -6,7 +6,9 @@ public record PartnershipStatsResponse(
         String player2Id,
         String player2Name,
 
+        Integer totalMatches,
         Integer totalInnings,
+        Integer totalPartnerships,
 
         Integer totalRuns,
         Integer totalBallsFaced,
@@ -21,6 +23,8 @@ public record PartnershipStatsResponse(
         Integer highestPartnership,
         Integer lowestPartnership,
         Integer unbeatenPartnerships,
+        Integer fiftyPlusPartnerships,
+        Integer hundredPlusPartnerships,
 
         Integer player1Runs,
         Integer player2Runs,
