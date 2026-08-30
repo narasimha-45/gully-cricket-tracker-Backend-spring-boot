@@ -376,7 +376,7 @@ public class StatsReadRepository {
         params.addValue("minBalls", minBalls).addValue("minRuns", minRuns)
                 .addValue("minDismissals", minDismissals).addValue("limit", safeLimit(limit));
 
-        String wicketExpression = "SUM(CASE WHEN pr.batsman_dismissed = TRUE AND pr.dismissal_type IN ('BOWLED','CAUGHT','LBW','STUMPED','HIT_WICKET','SPECIAL_CASE') THEN 1 ELSE 0 END)";
+        String wicketExpression = "SUM(CASE WHEN pr.batsman_dismissed = TRUE AND pr.dismissal_type IN ('BOWLED','CAUGHT','LBW','STUMPED','HIT_WICKET','SPECIAL') THEN 1 ELSE 0 END)";
         String sql = """
                 SELECT pr.batsman_id AS batter_id, batter.name AS batter_name,
                        pr.bowler_id, bowler.name AS bowler_name,

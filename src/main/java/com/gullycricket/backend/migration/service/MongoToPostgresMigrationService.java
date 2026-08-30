@@ -322,7 +322,7 @@ public class MongoToPostgresMigrationService {
             return DismissalType.valueOf(type.trim().toUpperCase());
         } catch (IllegalArgumentException e) {
             log.warn("Unrecognized dismissal type '{}' — defaulting to SPECIAL_CASE", type);
-            return DismissalType.SPECIAL_CASE;
+            return DismissalType.SPECIAL;
         }
     }
 
