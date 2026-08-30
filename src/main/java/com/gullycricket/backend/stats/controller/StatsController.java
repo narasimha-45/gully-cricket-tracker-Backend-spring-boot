@@ -29,18 +29,20 @@ public class StatsController {
     @GetMapping("/player/{playerId}")
     public ResponseEntity<PlayerProfileDto> getPlayerProfile(
             @PathVariable String playerId,
-            @RequestParam(required = false) String seasonId
+            @RequestParam(required = false) String seasonId,
+            @RequestParam(required = false) MatchType matchType
     ) {
-        return ResponseEntity.ok(playerStatsService.getPlayerProfile(playerId, seasonId));
+        return ResponseEntity.ok(playerStatsService.getPlayerProfile(playerId, seasonId, matchType));
     }
 
     @GetMapping("/player/compare")
     public ResponseEntity<PlayerComparisonDto> comparePlayers(
             @RequestParam String player1Id,
             @RequestParam String player2Id,
-            @RequestParam(required = false) String seasonId
+            @RequestParam(required = false) String seasonId,
+            @RequestParam(required = false) MatchType matchType
     ) {
-        return ResponseEntity.ok(playerStatsService.comparePlayers(player1Id, player2Id, seasonId));
+        return ResponseEntity.ok(playerStatsService.comparePlayers(player1Id, player2Id, seasonId, matchType));
     }
 
     @GetMapping("/leaderboard/partnerships/innings")
@@ -124,9 +126,10 @@ public class StatsController {
     @GetMapping("/team/{teamId}")
     public ResponseEntity<TeamProfileDto> getTeamProfile(
             @PathVariable String teamId,
-            @RequestParam(required = false) String seasonId
+            @RequestParam(required = false) String seasonId,
+            @RequestParam(required = false) MatchType matchType
     ) {
-        return ResponseEntity.ok(teamStatsService.getTeamProfile(teamId, seasonId));
+        return ResponseEntity.ok(teamStatsService.getTeamProfile(teamId, seasonId, matchType));
     }
 
     // =====================================================================
@@ -184,9 +187,10 @@ public class StatsController {
     @GetMapping("/leaderboard/teams")
     public ResponseEntity<List<TeamLeaderboardEntryDto>> getTeamLeaderboard(
             @RequestParam(required = false) String seasonId,
+            @RequestParam(required = false) MatchType matchType,
             @RequestParam(required = false, defaultValue = "MATCHES_WON") TeamSortBy sortBy,
             @RequestParam(required = false) Integer limit
     ) {
-        return ResponseEntity.ok(teamStatsService.getTeamLeaderboard(seasonId, sortBy, limit));
+        return ResponseEntity.ok(teamStatsService.getTeamLeaderboard(seasonId, matchType, sortBy, limit));
     }
 }

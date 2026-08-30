@@ -2,6 +2,7 @@ package com.gullycricket.backend.matches.repository.read;
 
 import com.gullycricket.backend.config.DbQueryTimer;
 import com.gullycricket.backend.matches.entity.MatchStatus;
+import com.gullycricket.backend.matches.entity.MatchType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -72,6 +73,10 @@ public class MatchSummaryReadRepository {
     }
 
     public List<MatchSummaryRow> findCompletedForTeam(String teamId, String seasonId) {
+        return findCompletedForTeam(teamId, seasonId, null);
+    }
+
+    public List<MatchSummaryRow> findCompletedForTeam(String teamId, String seasonId, MatchType matchType) {
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("teamId", teamId)
                 .addValue("completed", MatchStatus.COMPLETED.name());
@@ -82,16 +87,28 @@ public class MatchSummaryReadRepository {
             sql.append(" AND m.season_id = :seasonId");
             params.addValue("seasonId", seasonId.trim());
         }
+        if (matchType != null) {
+            sql.append(" AND m.match_type = :matchType");
+            params.addValue("matchType", matchType.name());
+        }
         sql.append(" ORDER BY m.completed_at DESC NULLS LAST, m.id DESC");
         return queryTimer.record("matches.completedForTeam", () -> jdbc.query(sql.toString(), params, this::mapRow));
     }
 
     public List<MatchSummaryRow> findCompleted(String seasonId) {
+        return findCompleted(seasonId, null);
+    }
+
+    public List<MatchSummaryRow> findCompleted(String seasonId, MatchType matchType) {
         MapSqlParameterSource params = new MapSqlParameterSource("completed", MatchStatus.COMPLETED.name());
         StringBuilder sql = new StringBuilder(BASE_SQL).append(" AND m.status = :completed");
         if (seasonId != null && !seasonId.isBlank()) {
             sql.append(" AND m.season_id = :seasonId");
             params.addValue("seasonId", seasonId.trim());
+        }
+        if (matchType != null) {
+            sql.append(" AND m.match_type = :matchType");
+            params.addValue("matchType", matchType.name());
         }
         return queryTimer.record("matches.completed", () -> jdbc.query(sql.toString(), params, this::mapRow));
     }
