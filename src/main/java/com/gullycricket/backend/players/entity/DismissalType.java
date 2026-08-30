@@ -7,5 +7,5 @@ public enum DismissalType {
     RUN_OUT,
     STUMPED,
     HIT_WICKET,
-    SPECIAL_CASE
+    SPECIAL
 }
