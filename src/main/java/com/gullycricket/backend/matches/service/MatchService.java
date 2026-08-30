@@ -351,7 +351,7 @@ public class MatchService {
 
         return new MatchDataDto(
                 dto.seasonId(), normalizedTeams, normalizedToss, normalizeRules(dto.rules()), dto.totalOvers(),
-                dto.matchType(), normalizedInnings, normalizedResult
+                dto.matchType(), normalizedInnings, normalizedResult, dto.testConfig()
         );
     }
 
@@ -385,7 +385,8 @@ public class MatchService {
         return new InningsDto(
                 normalize(inning.battingTeam()), normalize(inning.bowlingTeam()),
                 inning.totalRuns(), inning.wickets(), inning.balls(), batting, bowling,
-                inning.extras(), dismissals, balls, inning.isSuperOver(), inning.completed()
+                inning.extras(), dismissals, balls, inning.isSuperOver(), inning.completed(),
+                inning.inningsNumber(), inning.completionReason()
         );
     }
 

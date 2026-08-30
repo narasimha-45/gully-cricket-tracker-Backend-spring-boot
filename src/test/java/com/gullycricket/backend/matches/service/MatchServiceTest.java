@@ -101,7 +101,8 @@ class MatchServiceTest {
                         innings("Eagles", "Spiders", 120, 4, 240),
                         innings("Spiders", "Eagles", 100, 3, 180)
                 ),
-                new ResultDto(null, "DRAW", 0, null)
+                new ResultDto(null, "DRAW", 0, null),
+                new TestConfigDto(2, false)
         );
 
         matchService.saveMatch(dto, null);
@@ -112,6 +113,7 @@ class MatchServiceTest {
         assertThat(saved.getIsMatchDrawn()).isTrue();
         assertThat(saved.getInningsSummaries()).hasSize(4);
         assertThat(saved.getTeamAScore()).isZero(); // legacy flat fields intentionally unused for Test
+        assertThat(saved.getMatchData().path("testConfig").path("inningsPerTeam").asInt()).isEqualTo(2);
     }
 
     @Test
@@ -136,7 +138,8 @@ class MatchServiceTest {
                         innings("EAGLES", "spiders", 100, 2, 60),
                         innings("Spiders", "Eagles", winner == null ? 100 : 90, 4, 60)
                 ),
-                new ResultDto(winner, winner == null ? "TIE" : "RUNS", winner == null ? 0 : 10, "Alice")
+                new ResultDto(winner, winner == null ? "TIE" : "RUNS", winner == null ? 0 : 10, "Alice"),
+                null
         );
     }
 
@@ -150,7 +153,7 @@ class MatchServiceTest {
     private InningsDto innings(String batting, String bowling, int runs, int wickets, int balls) {
         return new InningsDto(
                 batting, bowling, runs, wickets, balls,
-                Map.of(), Map.of(), new ExtrasDto(0, 0), Map.of(), List.of(), false, true
+                Map.of(), Map.of(), new ExtrasDto(0, 0), Map.of(), List.of(), false, true, 1, null
         );
     }
 

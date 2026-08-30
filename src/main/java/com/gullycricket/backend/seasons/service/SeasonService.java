@@ -3,10 +3,11 @@ package com.gullycricket.backend.seasons.service;
 import com.gullycricket.backend.common.exception.BadRequestException;
 import com.gullycricket.backend.common.exception.ResourceNotFoundException;
 import com.gullycricket.backend.config.CacheNames;
-import com.gullycricket.backend.matches.repository.read.InningsScoreRow;
+import com.gullycricket.backend.matches.entity.MatchType;
+import com.gullycricket.backend.matches.repository.read.MatchInningsSummaryRow;
 import com.gullycricket.backend.matches.repository.read.MatchSummaryReadRepository;
 import com.gullycricket.backend.matches.repository.read.MatchSummaryRow;
-import com.gullycricket.backend.seasons.dto.InningsScoreDto;
+import com.gullycricket.backend.seasons.dto.MatchInningsSummaryDto;
 import com.gullycricket.backend.seasons.dto.MatchResponseDto;
 import com.gullycricket.backend.seasons.dto.SeasonSearchDto;
 import com.gullycricket.backend.seasons.entity.Season;
@@ -19,7 +20,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -94,8 +97,12 @@ public class SeasonService {
         if (matches.isEmpty() && !seasonRepository.existsById(seasonId)) {
             throw new ResourceNotFoundException("Season not found with ID: " + seasonId);
         }
+        Map<String, List<MatchInningsSummaryDto>> inningsByMatchId = loadInningsByMatchId(matches);
         return matches.stream()
-                .map(this::matchToResponseDtoMatch)
+                .map(match -> matchToResponseDtoMatch(
+                        match,
+                        inningsByMatchId.getOrDefault(match.matchId(), List.of())
+                ))
                 .toList();
     }
 
@@ -114,7 +121,10 @@ public class SeasonService {
         return new SeasonSearchDto(season.getId(), season.getSeasonName(), season.getMatchesPlayed());
     }
 
-    private MatchResponseDto matchToResponseDtoMatch(MatchSummaryRow match) {
+    private MatchResponseDto matchToResponseDtoMatch(
+            MatchSummaryRow match,
+            List<MatchInningsSummaryDto> innings
+    ) {
         boolean teamAIsBattingFirst = match.battingFirstTeamId() != null
                 && match.battingFirstTeamId().equals(match.teamAId());
 
@@ -122,17 +132,11 @@ public class SeasonService {
         int displayTeamARuns = teamAIsBattingFirst ? match.teamARuns() : match.teamBRuns();
         int displayTeamAWickets = teamAIsBattingFirst ? match.teamAWickets() : match.teamBWickets();
         int displayTeamABalls = teamAIsBattingFirst ? match.teamABalls() : match.teamBBalls();
-        List<InningsScoreDto> displayTeamAInnings = teamAIsBattingFirst
-                ? toInningsDtoList(match.teamAInnings())
-                : toInningsDtoList(match.teamBInnings());
 
         String displayTeamBName = teamAIsBattingFirst ? match.teamBName() : match.teamAName();
         int displayTeamBRuns = teamAIsBattingFirst ? match.teamBRuns() : match.teamARuns();
         int displayTeamBWickets = teamAIsBattingFirst ? match.teamBWickets() : match.teamAWickets();
         int displayTeamBBalls = teamAIsBattingFirst ? match.teamBBalls() : match.teamABalls();
-        List<InningsScoreDto> displayTeamBInnings = teamAIsBattingFirst
-                ? toInningsDtoList(match.teamBInnings())
-                : toInningsDtoList(match.teamAInnings());
 
         return new MatchResponseDto(
                 match.matchId(),
@@ -140,11 +144,9 @@ public class SeasonService {
                 displayTeamAName,
                 displayTeamARuns,
                 displayTeamAWickets,
-                displayTeamAInnings,
                 displayTeamBName,
                 displayTeamBRuns,
                 displayTeamBWickets,
-                displayTeamBInnings,
                 match.winnerTeamName(),
                 match.superOver(),
                 match.wonBy(),
@@ -153,17 +155,41 @@ public class SeasonService {
                 match.matchType(),
                 displayTeamABalls,
                 displayTeamBBalls,
-                match.totalOvers()
+                match.totalOvers(),
+                innings
         );
     }
 
-    private List<InningsScoreDto> toInningsDtoList(List<InningsScoreRow> rows) {
-        if (rows == null || rows.isEmpty()) {
-            return List.of();
+    private Map<String, List<MatchInningsSummaryDto>> loadInningsByMatchId(List<MatchSummaryRow> matches) {
+        if (matches.isEmpty()) {
+            return Map.of();
         }
-        return rows.stream()
-                .map(row -> new InningsScoreDto(row.inningsNumber(), row.runs(), row.wickets(), row.balls(), row.completed()))
+
+        List<String> matchIds = matches.stream()
+                .filter(match -> match.matchType() == MatchType.TEST)
+                .map(MatchSummaryRow::matchId)
                 .toList();
+        if (matchIds.isEmpty()) {
+            return Map.of();
+        }
+
+        List<MatchInningsSummaryRow> rows = matchSummaryReadRepository.findInningsByMatchIds(matchIds);
+        Map<String, List<MatchInningsSummaryDto>> grouped = new LinkedHashMap<>();
+
+        for (MatchInningsSummaryRow row : rows) {
+            grouped.computeIfAbsent(row.matchId(), ignored -> new java.util.ArrayList<>())
+                    .add(new MatchInningsSummaryDto(
+                            row.sequenceNumber(),
+                            row.teamInningsNumber(),
+                            row.battingTeamName(),
+                            row.runs(),
+                            row.wickets(),
+                            row.balls(),
+                            row.superOver(),
+                            row.completed()
+                    ));
+        }
+        return grouped;
     }
 
 }

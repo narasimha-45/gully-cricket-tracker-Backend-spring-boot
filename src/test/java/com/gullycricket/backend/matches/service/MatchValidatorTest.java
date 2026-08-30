@@ -42,7 +42,8 @@ class MatchValidatorTest {
                 10,
                 MatchType.OVERS,
                 List.of(innings("Eagles", "Spiders"), innings("Spiders", "Eagles")),
-                new ResultDto(null, "TIE", 0, null)
+                new ResultDto(null, "TIE", 0, null),
+                null
         );
 
         assertThatCode(() -> validator.validate(dto)).doesNotThrowAnyException();
@@ -60,14 +61,15 @@ class MatchValidatorTest {
                 10,
                 MatchType.OVERS,
                 List.of(innings("EAGLES", "spiders"), innings("Spiders", "Eagles")),
-                result
+                result,
+                null
         );
     }
 
     private InningsDto innings(String batting, String bowling) {
         return new InningsDto(
                 batting, bowling, 80, 2, 60,
-                Map.of(), Map.of(), new ExtrasDto(0, 0), Map.of(), List.of(), false, true
+                Map.of(), Map.of(), new ExtrasDto(0, 0), Map.of(), List.of(), false, true, 1, null
         );
     }
 
