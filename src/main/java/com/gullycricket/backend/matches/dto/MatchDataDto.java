@@ -18,5 +18,6 @@ public record MatchDataDto(
         @PositiveOrZero int totalOvers,
         @NotNull MatchType matchType,
         @NotEmpty List<@Valid InningsDto> innings,
-        @Valid ResultDto result
+        @Valid ResultDto result,
+        @Valid TestConfigDto testConfig
 ) {}

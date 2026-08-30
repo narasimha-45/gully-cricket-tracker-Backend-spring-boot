@@ -1,12 +1,9 @@
 package com.gullycricket.backend.matches.repository.read;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gullycricket.backend.config.DbQueryTimer;
 import com.gullycricket.backend.matches.entity.MatchStatus;
 import com.gullycricket.backend.matches.entity.MatchType;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -16,58 +13,24 @@ import java.util.List;
 /**
  * High-traffic match summaries are read through JDBC so Hibernate never hydrates
  * the large match_data JSONB column or triggers one lazy innings query per match.
- *
- * <p>Test matches can have up to two innings per team, so per-team totals are exposed
- * both as an all-innings SUM (for aggregate stats) and as an ordered list of individual
- * innings (for display, e.g. "286 & 177-7"). See {@link MatchSummaryRow} for details.
  */
-@Slf4j
 @Repository
 @RequiredArgsConstructor
 public class MatchSummaryReadRepository {
 
     private final NamedParameterJdbcTemplate jdbc;
     private final DbQueryTimer queryTimer;
-    private static final ObjectMapper INNINGS_JSON_MAPPER = new ObjectMapper();
-    private static final TypeReference<List<InningsScoreRow>> INNINGS_LIST_TYPE = new TypeReference<>() {};
 
     private static final String BASE_SQL = """
-            WITH innings_rows AS (
-                SELECT
-                    match_id,
-                    batting_team_id,
-                    team_innings_number,
-                    runs,
-                    wickets,
-                    balls,
-                    completed
-                FROM match_innings_summary
-                WHERE super_over = FALSE
-            ),
-            innings_totals AS (
+            WITH innings_totals AS (
                 SELECT
                     match_id,
                     batting_team_id,
                     SUM(runs) AS runs,
                     SUM(wickets) AS wickets,
                     SUM(balls) AS balls
-                FROM innings_rows
-                GROUP BY match_id, batting_team_id
-            ),
-            innings_json AS (
-                SELECT
-                    match_id,
-                    batting_team_id,
-                    json_agg(
-                        json_build_object(
-                            'inningsNumber', team_innings_number,
-                            'runs', runs,
-                            'wickets', wickets,
-                            'balls', balls,
-                            'completed', completed
-                        ) ORDER BY team_innings_number
-                    ) AS innings
-                FROM innings_rows
+                FROM match_innings_summary
+                WHERE super_over = FALSE
                 GROUP BY match_id, batting_team_id
             )
             SELECT
@@ -79,13 +42,11 @@ public class MatchSummaryReadRepository {
                 COALESCE(ia.runs, m.team_a_score, 0) AS team_a_runs,
                 COALESCE(ia.wickets, m.team_a_wickets, 0) AS team_a_wickets,
                 COALESCE(ia.balls, m.team_a_balls_faced, 0) AS team_a_balls,
-                ja.innings AS team_a_innings_json,
                 tb.id AS team_b_id,
                 tb.team_name AS team_b_name,
                 COALESCE(ib.runs, m.team_b_score, 0) AS team_b_runs,
                 COALESCE(ib.wickets, m.team_b_wickets, 0) AS team_b_wickets,
                 COALESCE(ib.balls, m.team_b_balls_faced, 0) AS team_b_balls,
-                jb.innings AS team_b_innings_json,
                 m.batting_first_team_id AS batting_first_team_id,
                 m.winner_team_id AS winner_team_id,
                 winner.team_name AS winner_team_name,
@@ -104,8 +65,6 @@ public class MatchSummaryReadRepository {
             LEFT JOIN teams winner ON winner.id = m.winner_team_id
             LEFT JOIN innings_totals ia ON ia.match_id = m.id AND ia.batting_team_id = m.team_a_id
             LEFT JOIN innings_totals ib ON ib.match_id = m.id AND ib.batting_team_id = m.team_b_id
-            LEFT JOIN innings_json ja ON ja.match_id = m.id AND ja.batting_team_id = m.team_a_id
-            LEFT JOIN innings_json jb ON jb.match_id = m.id AND jb.batting_team_id = m.team_b_id
             WHERE 1 = 1
             """;
 
@@ -155,6 +114,49 @@ public class MatchSummaryReadRepository {
         return queryTimer.record("matches.completed", () -> jdbc.query(sql.toString(), params, this::mapRow));
     }
 
+    /**
+     * Fetches all innings for a page/list of matches in one query. This keeps the
+     * season matches endpoint at two small JDBC reads and avoids both JSONB
+     * hydration and an N+1 innings lookup.
+     */
+    public List<MatchInningsSummaryRow> findInningsByMatchIds(List<String> matchIds) {
+        if (matchIds == null || matchIds.isEmpty()) {
+            return List.of();
+        }
+
+        String sql = """
+                SELECT
+                    mis.match_id AS match_id,
+                    mis.sequence_number AS sequence_number,
+                    mis.team_innings_number AS team_innings_number,
+                    batting.team_name AS batting_team_name,
+                    mis.runs AS runs,
+                    mis.wickets AS wickets,
+                    mis.balls AS balls,
+                    mis.super_over AS super_over,
+                    mis.completed AS completed
+                FROM match_innings_summary mis
+                JOIN teams batting ON batting.id = mis.batting_team_id
+                WHERE mis.match_id IN (:matchIds)
+                ORDER BY mis.match_id, mis.sequence_number
+                """;
+
+        MapSqlParameterSource params = new MapSqlParameterSource("matchIds", matchIds);
+        return queryTimer.record("matches.inningsByIds", () -> jdbc.query(sql, params, (rs, rowNum) ->
+                new MatchInningsSummaryRow(
+                        rs.getString("match_id"),
+                        rs.getInt("sequence_number"),
+                        rs.getInt("team_innings_number"),
+                        rs.getString("batting_team_name"),
+                        rs.getInt("runs"),
+                        rs.getInt("wickets"),
+                        rs.getInt("balls"),
+                        rs.getBoolean("super_over"),
+                        rs.getBoolean("completed")
+                )
+        ));
+    }
+
     private MatchSummaryRow mapRow(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {
         return new MatchSummaryRow(
                 rs.getString("match_id"),
@@ -165,13 +167,11 @@ public class MatchSummaryReadRepository {
                 rs.getInt("team_a_runs"),
                 rs.getInt("team_a_wickets"),
                 rs.getInt("team_a_balls"),
-                parseInningsJson(rs.getString("team_a_innings_json")),
                 rs.getString("team_b_id"),
                 rs.getString("team_b_name"),
                 rs.getInt("team_b_runs"),
                 rs.getInt("team_b_wickets"),
                 rs.getInt("team_b_balls"),
-                parseInningsJson(rs.getString("team_b_innings_json")),
                 rs.getString("batting_first_team_id"),
                 rs.getString("winner_team_id"),
                 rs.getString("winner_team_name"),
@@ -189,18 +189,5 @@ public class MatchSummaryReadRepository {
     private Integer getNullableInt(java.sql.ResultSet rs, String column) throws java.sql.SQLException {
         int value = rs.getInt(column);
         return rs.wasNull() ? null : value;
-    }
-
-    /** Postgres returns json_agg output as a JSON array string (or null if the team hasn't batted yet). */
-    private List<InningsScoreRow> parseInningsJson(String json) {
-        if (json == null || json.isBlank()) {
-            return List.of();
-        }
-        try {
-            return INNINGS_JSON_MAPPER.readValue(json, INNINGS_LIST_TYPE);
-        } catch (Exception e) {
-            log.warn("Failed to parse innings JSON for match summary row: {}", json, e);
-            return List.of();
-        }
     }
 }

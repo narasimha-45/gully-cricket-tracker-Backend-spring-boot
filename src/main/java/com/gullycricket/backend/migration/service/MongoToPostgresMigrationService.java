@@ -168,7 +168,8 @@ public class MongoToPostgresMigrationService {
                 match.getTotalOvers() != null ? match.getTotalOvers() : 0,
                 toMatchType(match.getMatchType()),
                 toInningsList(match.getInnings()),
-                toResultDto(match.getResult())
+                toResultDto(match.getResult()),
+                null
         );
     }
 
@@ -239,7 +240,9 @@ public class MongoToPostgresMigrationService {
                 toDismissalsMap(inning.dismissals()),
                 List.of(),   // no ball-by-ball data in the legacy Mongo shape
                 false,       // no super-over flag in the legacy Mongo shape
-                Boolean.TRUE.equals(inning.completed())
+                Boolean.TRUE.equals(inning.completed()),
+                null,        // legacy Mongo shape has no per-team innings ordinal
+                null         // legacy Mongo shape has no completion reason
         );
     }
 

@@ -1,8 +1,8 @@
 package com.gullycricket.backend.matches.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.PositiveOrZero;
+import jakarta.validation.constraints.NotBlank;
 
 import java.util.List;
 import java.util.Map;
@@ -19,5 +19,7 @@ public record InningsDto(
         Map<String, DismissalDto> dismissals,
         List<BallDto> ballByBall,
         @JsonProperty("isSuperOver") boolean isSuperOver,
-        boolean completed
+        boolean completed,
+        Integer inningsNumber,
+        String completionReason
 ) {}

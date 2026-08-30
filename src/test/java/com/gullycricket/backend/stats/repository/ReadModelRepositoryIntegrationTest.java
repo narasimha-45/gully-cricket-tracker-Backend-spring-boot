@@ -18,6 +18,8 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
@@ -128,8 +130,16 @@ class ReadModelRepositoryIntegrationTest {
     @Test
     void seasonSummaryUsesCompactInningsProjection() {
         var matches = matchSummaryReadRepository.findBySeasonId("s1");
+        var innings = matchSummaryReadRepository.findInningsByMatchIds(List.of("m1"));
+
         assertThat(matches).hasSize(1);
         assertThat(matches.getFirst().teamARuns()).isEqualTo(100);
         assertThat(matches.getFirst().teamBRuns()).isEqualTo(90);
+        assertThat(matches.getFirst().matchType().name()).isEqualTo("OVERS");
+
+        assertThat(innings).hasSize(2);
+        assertThat(innings.getFirst().sequenceNumber()).isEqualTo(1);
+        assertThat(innings.getFirst().battingTeamName()).isEqualTo("eagles");
+        assertThat(innings.getFirst().runs()).isEqualTo(100);
     }
 }
