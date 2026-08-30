@@ -3,8 +3,10 @@ package com.gullycricket.backend.seasons.service;
 import com.gullycricket.backend.common.exception.BadRequestException;
 import com.gullycricket.backend.common.exception.ResourceNotFoundException;
 import com.gullycricket.backend.config.CacheNames;
+import com.gullycricket.backend.matches.repository.read.InningsScoreRow;
 import com.gullycricket.backend.matches.repository.read.MatchSummaryReadRepository;
 import com.gullycricket.backend.matches.repository.read.MatchSummaryRow;
+import com.gullycricket.backend.seasons.dto.InningsScoreDto;
 import com.gullycricket.backend.seasons.dto.MatchResponseDto;
 import com.gullycricket.backend.seasons.dto.SeasonSearchDto;
 import com.gullycricket.backend.seasons.entity.Season;
@@ -120,11 +122,17 @@ public class SeasonService {
         int displayTeamARuns = teamAIsBattingFirst ? match.teamARuns() : match.teamBRuns();
         int displayTeamAWickets = teamAIsBattingFirst ? match.teamAWickets() : match.teamBWickets();
         int displayTeamABalls = teamAIsBattingFirst ? match.teamABalls() : match.teamBBalls();
+        List<InningsScoreDto> displayTeamAInnings = teamAIsBattingFirst
+                ? toInningsDtoList(match.teamAInnings())
+                : toInningsDtoList(match.teamBInnings());
 
         String displayTeamBName = teamAIsBattingFirst ? match.teamBName() : match.teamAName();
         int displayTeamBRuns = teamAIsBattingFirst ? match.teamBRuns() : match.teamARuns();
         int displayTeamBWickets = teamAIsBattingFirst ? match.teamBWickets() : match.teamAWickets();
         int displayTeamBBalls = teamAIsBattingFirst ? match.teamBBalls() : match.teamABalls();
+        List<InningsScoreDto> displayTeamBInnings = teamAIsBattingFirst
+                ? toInningsDtoList(match.teamBInnings())
+                : toInningsDtoList(match.teamAInnings());
 
         return new MatchResponseDto(
                 match.matchId(),
@@ -132,18 +140,30 @@ public class SeasonService {
                 displayTeamAName,
                 displayTeamARuns,
                 displayTeamAWickets,
+                displayTeamAInnings,
                 displayTeamBName,
                 displayTeamBRuns,
                 displayTeamBWickets,
+                displayTeamBInnings,
                 match.winnerTeamName(),
                 match.superOver(),
                 match.wonBy(),
                 match.completedAt(),
                 match.status(),
+                match.matchType(),
                 displayTeamABalls,
                 displayTeamBBalls,
                 match.totalOvers()
         );
+    }
+
+    private List<InningsScoreDto> toInningsDtoList(List<InningsScoreRow> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        return rows.stream()
+                .map(row -> new InningsScoreDto(row.inningsNumber(), row.runs(), row.wickets(), row.balls(), row.completed()))
+                .toList();
     }
 
 }
