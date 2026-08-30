@@ -1,6 +1,7 @@
 package com.gullycricket.backend.stats.service;
 
 import com.gullycricket.backend.common.exception.ResourceNotFoundException;
+import com.gullycricket.backend.matches.entity.MatchType;
 import com.gullycricket.backend.matches.repository.read.MatchSummaryReadRepository;
 import com.gullycricket.backend.matches.repository.read.MatchSummaryRow;
 import com.gullycricket.backend.stats.dto.NotableMatchDto;
@@ -29,7 +30,11 @@ public class TeamStatsService {
     private final TeamRepository teamRepository;
 
     public TeamProfileDto getTeamProfile(String teamId, String seasonId) {
-        List<MatchSummaryRow> rows = matchSummaryReadRepository.findCompletedForTeam(teamId, seasonId);
+        return getTeamProfile(teamId, seasonId, null);
+    }
+
+    public TeamProfileDto getTeamProfile(String teamId, String seasonId, MatchType matchType) {
+        List<MatchSummaryRow> rows = matchSummaryReadRepository.findCompletedForTeam(teamId, seasonId, matchType);
         String teamName;
         if (rows.isEmpty()) {
             // Only pay the existence lookup for a team with no completed matches.
@@ -68,7 +73,11 @@ public class TeamStatsService {
     }
 
     public List<TeamLeaderboardEntryDto> getTeamLeaderboard(String seasonId, TeamSortBy sortBy, Integer limit) {
-        List<MatchSummaryRow> allMatches = matchSummaryReadRepository.findCompleted(seasonId);
+        return getTeamLeaderboard(seasonId, null, sortBy, limit);
+    }
+
+    public List<TeamLeaderboardEntryDto> getTeamLeaderboard(String seasonId, MatchType matchType, TeamSortBy sortBy, Integer limit) {
+        List<MatchSummaryRow> allMatches = matchSummaryReadRepository.findCompleted(seasonId, matchType);
         Map<String, List<MatchSummaryRow>> matchesByTeamId = new HashMap<>();
         Map<String, String> teamNames = new HashMap<>();
 
