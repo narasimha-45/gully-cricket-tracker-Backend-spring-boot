@@ -1,6 +1,7 @@
 package com.gullycricket.backend.stats.repository;
 
 import com.gullycricket.backend.config.DbQueryTimer;
+import com.gullycricket.backend.matches.entity.MatchType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -18,6 +19,10 @@ public class PlayerProfileReadRepository {
     private final DbQueryTimer queryTimer;
 
     public List<PlayerStatReadRow> findRows(String playerId, String seasonId) {
+        return findRows(playerId, seasonId, null);
+    }
+
+    public List<PlayerStatReadRow> findRows(String playerId, String seasonId, MatchType matchType) {
         MapSqlParameterSource params = new MapSqlParameterSource("playerId", playerId);
         // Participation is the source of truth for whether a player played a match.
         // player_matches is an innings/activity projection and legitimately has no row
@@ -72,6 +77,10 @@ public class PlayerProfileReadRepository {
         if (seasonId != null && !seasonId.isBlank()) {
             sql.append(" AND mpp.season_id = :seasonId");
             params.addValue("seasonId", seasonId.trim());
+        }
+        if (matchType != null) {
+            sql.append(" AND mpp.match_type = :matchType");
+            params.addValue("matchType", matchType.name());
         }
         sql.append(" ORDER BY m.completed_at DESC NULLS LAST, pm.innings_number DESC NULLS LAST");
         return queryTimer.record("stats.playerProfileRows", () -> jdbc.query(sql.toString(), params, this::mapRow));

@@ -2,6 +2,7 @@ package com.gullycricket.backend.stats.service;
 
 import com.gullycricket.backend.common.exception.ResourceNotFoundException;
 import com.gullycricket.backend.config.CacheNames;
+import com.gullycricket.backend.matches.entity.MatchType;
 import com.gullycricket.backend.players.entity.Player;
 import com.gullycricket.backend.players.repository.PlayerRepository;
 import com.gullycricket.backend.stats.dto.*;
@@ -106,8 +107,12 @@ public class PlayerStatsService {
     }
 
     public PlayerComparisonDto comparePlayers(String player1Id, String player2Id, String seasonId) {
-        PlayerProfileDto first = getPlayerProfile(player1Id, seasonId);
-        PlayerProfileDto second = getPlayerProfile(player2Id, seasonId);
+        return comparePlayers(player1Id, player2Id, seasonId, null);
+    }
+
+    public PlayerComparisonDto comparePlayers(String player1Id, String player2Id, String seasonId, MatchType matchType) {
+        PlayerProfileDto first = getPlayerProfile(player1Id, seasonId, matchType);
+        PlayerProfileDto second = getPlayerProfile(player2Id, seasonId, matchType);
         return new PlayerComparisonDto(
                 seasonId,
                 comparisonSide(first),
@@ -124,7 +129,11 @@ public class PlayerStatsService {
     }
 
     public PlayerProfileDto getPlayerProfile(String playerId, String seasonId) {
-        List<PlayerStatReadRow> rows = playerProfileReadRepository.findRows(playerId, seasonId);
+        return getPlayerProfile(playerId, seasonId, null);
+    }
+
+    public PlayerProfileDto getPlayerProfile(String playerId, String seasonId, MatchType matchType) {
+        List<PlayerStatReadRow> rows = playerProfileReadRepository.findRows(playerId, seasonId, matchType);
         String name;
         if (rows.isEmpty()) {
             Player player = playerRepository.findById(playerId)
@@ -134,7 +143,7 @@ public class PlayerStatsService {
             name = rows.getFirst().playerName();
         }
 
-        PlayerParticipationSummaryDto participation = statsReadRepository.findPlayerParticipationSummary(playerId, seasonId);
+        PlayerParticipationSummaryDto participation = statsReadRepository.findPlayerParticipationSummary(playerId, seasonId, matchType);
         int matchesPlayed = participation == null ? distinctMatches(rows).size() : participation.matchesPlayed();
         int matchesWon = participation == null
                 ? (int) rows.stream().filter(PlayerStatReadRow::matchWon).map(PlayerStatReadRow::matchId).distinct().count()

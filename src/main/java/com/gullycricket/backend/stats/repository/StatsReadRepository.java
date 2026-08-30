@@ -175,11 +175,19 @@ public class StatsReadRepository {
 
 
     public PlayerParticipationSummaryDto findPlayerParticipationSummary(String playerId, String seasonId) {
+        return findPlayerParticipationSummary(playerId, seasonId, null);
+    }
+
+    public PlayerParticipationSummaryDto findPlayerParticipationSummary(String playerId, String seasonId, MatchType matchType) {
         MapSqlParameterSource params = new MapSqlParameterSource("playerId", playerId);
-        String seasonClause = "";
+        StringBuilder extraClause = new StringBuilder();
         if (hasText(seasonId)) {
-            seasonClause = " AND season_id = :seasonId";
+            extraClause.append(" AND season_id = :seasonId");
             params.addValue("seasonId", seasonId.trim());
+        }
+        if (matchType != null) {
+            extraClause.append(" AND match_type = :matchType");
+            params.addValue("matchType", matchType.name());
         }
         String sql = """
                 SELECT COUNT(DISTINCT match_id) AS matches_played,
@@ -188,7 +196,7 @@ public class StatsReadRepository {
                 FROM match_player_participation
                 WHERE player_id = :playerId
                 %s
-                """.formatted(seasonClause);
+                """.formatted(extraClause);
         return queryTimer.record("stats.playerParticipation", () -> jdbc.queryForObject(sql, params, (rs, rowNum) ->
                 new PlayerParticipationSummaryDto(rs.getInt("matches_played"), rs.getInt("matches_won"), rs.getInt("motm"))));
     }
