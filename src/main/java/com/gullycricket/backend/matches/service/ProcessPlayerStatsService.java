@@ -506,12 +506,12 @@ public class ProcessPlayerStatsService {
 
     private DismissalType parseDismissalType(String value) {
         if (!hasText(value)) {
-            return DismissalType.SPECIAL_CASE;
+            return DismissalType.SPECIAL;
         }
         try {
             return DismissalType.valueOf(value.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException ex) {
-            return DismissalType.SPECIAL_CASE;
+            return DismissalType.SPECIAL;
         }
     }
 
