@@ -18,6 +18,11 @@ public class MatchValidator {
         require(hasText(dto.seasonId()), "seasonId is required");
         require(dto.matchType() != null, "matchType is required");
         require(dto.totalOvers() >= 0, "totalOvers cannot be negative");
+        if (dto.testConfig() != null) {
+            Integer inningsPerTeam = dto.testConfig().inningsPerTeam();
+            require(inningsPerTeam == null || inningsPerTeam == 1 || inningsPerTeam == 2,
+                    "testConfig.inningsPerTeam must be 1 or 2");
+        }
         require(dto.teams() != null, "teams are required");
 
         TeamDto teamA = dto.teams().get("teamA");

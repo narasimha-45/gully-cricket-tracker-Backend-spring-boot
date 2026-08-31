@@ -113,6 +113,14 @@ public class Match {
     @Column(name = "won_by")
     private String wonBy;
 
+    /** Test-match config: how many innings per side (1 or 2). Null for OVERS matches. */
+    @Column(name = "test_innings_per_team")
+    private Integer testInningsPerTeam;
+
+    /** Whether the follow-on was enforced at any point in this Test match. */
+    @Column(name = "follow_on_enforced", nullable = false)
+    private Boolean followOnEnforced = false;
+
     @OneToMany(
             mappedBy = "match",
             cascade = CascadeType.ALL,

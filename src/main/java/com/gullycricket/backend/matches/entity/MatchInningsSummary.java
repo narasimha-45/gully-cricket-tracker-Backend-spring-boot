@@ -64,4 +64,12 @@ public class MatchInningsSummary {
 
     @Column(name = "completed", nullable = false)
     private boolean completed = false;
+
+    /** True when this innings was batted under an enforced follow-on (Test only). */
+    @Column(name = "is_follow_on", nullable = false)
+    private boolean isFollowOn = false;
+
+    /** Why the innings ended: DECLARED | ALL_OUT | OVERS_COMPLETE | DRAW, null if unknown/legacy. */
+    @Column(name = "completion_reason", length = 32)
+    private String completionReason;
 }

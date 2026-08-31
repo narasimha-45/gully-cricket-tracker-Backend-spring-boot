@@ -10,6 +10,7 @@ import java.util.Map;
 public record InningsDto(
         @NotBlank String battingTeam,
         @NotBlank String bowlingTeam,
+        int inningsNumber,
         @PositiveOrZero int totalRuns,
         @PositiveOrZero int wickets,
         @PositiveOrZero int balls,
@@ -19,5 +20,7 @@ public record InningsDto(
         Map<String, DismissalDto> dismissals,
         List<BallDto> ballByBall,
         @JsonProperty("isSuperOver") boolean isSuperOver,
-        boolean completed
+        @JsonProperty("isFollowOn") boolean isFollowOn,
+        boolean completed,
+        String completionReason
 ) {}
