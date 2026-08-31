@@ -5,6 +5,7 @@ import com.gullycricket.backend.matches.dto.*;
 import com.gullycricket.backend.matches.entity.Match;
 import com.gullycricket.backend.matches.entity.MatchType;
 import com.gullycricket.backend.matches.repository.MatchRepository;
+import com.gullycricket.backend.matches.repository.MatchProjectionMaintenanceRepository;
 import com.gullycricket.backend.seasons.entity.Season;
 import com.gullycricket.backend.seasons.repository.SeasonRepository;
 import com.gullycricket.backend.seasons.service.SeasonService;
@@ -17,6 +18,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -33,6 +35,7 @@ class MatchServiceTest {
     @Mock ProcessPlayerStatsService processPlayerStatsService;
     @Mock TeamService teamService;
     @Mock SeasonService seasonService;
+    @Mock MatchProjectionMaintenanceRepository maintenanceRepository;
 
     private MatchService matchService;
     private Season season;
@@ -46,7 +49,8 @@ class MatchServiceTest {
                 processPlayerStatsService,
                 teamService,
                 new MatchValidator(),
-                seasonService
+                seasonService,
+                maintenanceRepository
         );
         season = new Season();
         season.setId("season-1");
@@ -83,7 +87,8 @@ class MatchServiceTest {
         assertThat(saved.getInningsSummaries()).hasSize(2);
         assertThat(saved.getInningsSummaries().get(0).getSequenceNumber()).isEqualTo(1);
         assertThat(saved.getBattingFirstTeam().getTeamName()).isEqualTo("eagles");
-        verify(seasonService).incrementMatchesPlayed("season-1");
+        verify(seasonService).syncMatchesPlayed("season-1");
+        verify(maintenanceRepository).acquireProjectionWriteLock();
     }
 
     @Test
@@ -113,6 +118,35 @@ class MatchServiceTest {
         assertThat(saved.getIsMatchDrawn()).isTrue();
         assertThat(saved.getInningsSummaries()).hasSize(4);
         assertThat(saved.getTeamAScore()).isZero(); // legacy flat fields intentionally unused for Test
+    }
+
+    @Test
+    void replayUsesStoredJsonResetsStaleDerivedFieldsAndPreservesMatchIdentityMetadata() {
+        Match match = new Match();
+        match.setId("match-1");
+        match.setSeason(season);
+        match.setCompletedAt(LocalDateTime.of(2026, 1, 2, 3, 4));
+        match.setIdempotencyKey("original-key");
+        match.setMatchData(new ObjectMapper().valueToTree(limitedOvers("Eagles")));
+
+        // Simulate stale values produced by an older projection implementation.
+        match.setIsMatchDrawn(true);
+        match.setIsMatchTied(true);
+        match.setWinByWickets(7);
+        match.setWonBy("stale result");
+
+        matchService.replayStoredMatch(match);
+
+        assertThat(match.getId()).isEqualTo("match-1");
+        assertThat(match.getCompletedAt()).isEqualTo(LocalDateTime.of(2026, 1, 2, 3, 4));
+        assertThat(match.getIdempotencyKey()).isEqualTo("original-key");
+        assertThat(match.getIsMatchDrawn()).isFalse();
+        assertThat(match.getIsMatchTied()).isFalse();
+        assertThat(match.getWinByWickets()).isNull();
+        assertThat(match.getWinByRuns()).isEqualTo(10);
+        assertThat(match.getWonBy()).isEqualTo("eagles won by 10 runs");
+        assertThat(match.getInningsSummaries()).hasSize(2);
+        verify(processPlayerStatsService).processPlayerStats(eq(match), any(MatchDataDto.class));
     }
 
     @Test
