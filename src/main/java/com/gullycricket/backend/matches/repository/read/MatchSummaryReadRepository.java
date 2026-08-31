@@ -72,6 +72,48 @@ public class MatchSummaryReadRepository {
         return queryTimer.record("matches.bySeason", () -> jdbc.query(BASE_SQL + " AND m.season_id = :seasonId ORDER BY m.completed_at DESC NULLS LAST, m.id DESC", params, this::mapRow));
     }
 
+    private static final String INNINGS_BREAKDOWN_SQL = """
+            SELECT
+                mis.match_id AS match_id,
+                mis.batting_team_id AS team_id,
+                mis.team_innings_number AS team_innings_number,
+                mis.runs AS runs,
+                mis.wickets AS wickets,
+                mis.balls AS balls,
+                mis.completed AS completed,
+                mis.is_follow_on AS is_follow_on,
+                mis.completion_reason AS completion_reason
+            FROM match_innings_summary mis
+            JOIN matches m ON m.id = mis.match_id
+            WHERE mis.super_over = FALSE AND m.season_id = :seasonId
+            ORDER BY mis.match_id, mis.batting_team_id, mis.team_innings_number
+            """;
+
+    /**
+     * Per-innings breakdown (runs/wickets/balls, declare/follow-on/completion reason)
+     * for every completed match in a season, keyed by raw batting_team_id. Kept as a
+     * separate query from {@link #findBySeasonId} since most callers only need the
+     * flat score totals already carried on {@code matches}.
+     */
+    public List<MatchInningsBreakdownRow> findInningsBreakdownBySeasonId(String seasonId) {
+        MapSqlParameterSource params = new MapSqlParameterSource("seasonId", seasonId);
+        return queryTimer.record("matches.inningsBreakdownBySeason", () -> jdbc.query(INNINGS_BREAKDOWN_SQL, params, this::mapBreakdownRow));
+    }
+
+    private MatchInningsBreakdownRow mapBreakdownRow(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {
+        return new MatchInningsBreakdownRow(
+                rs.getString("match_id"),
+                rs.getString("team_id"),
+                rs.getInt("team_innings_number"),
+                rs.getInt("runs"),
+                rs.getInt("wickets"),
+                rs.getInt("balls"),
+                rs.getBoolean("completed"),
+                rs.getBoolean("is_follow_on"),
+                rs.getString("completion_reason")
+        );
+    }
+
     public List<MatchSummaryRow> findCompletedForTeam(String teamId, String seasonId) {
         return findCompletedForTeam(teamId, seasonId, null);
     }

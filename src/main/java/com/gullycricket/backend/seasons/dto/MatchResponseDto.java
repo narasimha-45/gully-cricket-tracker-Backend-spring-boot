@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.gullycricket.backend.matches.entity.MatchStatus;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 public record MatchResponseDto(
         String id,
@@ -21,5 +22,7 @@ public record MatchResponseDto(
         MatchStatus matchStatus,
         Integer teamABallsFaced,
         Integer teamBBallsFaced,
-        Integer totalOvers
+        Integer totalOvers,
+        List<InningsBreakdownDto> teamAInnings,
+        List<InningsBreakdownDto> teamBInnings
 ) {}

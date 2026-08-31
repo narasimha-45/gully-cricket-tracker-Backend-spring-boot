@@ -95,6 +95,7 @@ class MatchServiceTest {
                 rules(),
                 0,
                 MatchType.TEST,
+                null,
                 List.of(
                         innings("Eagles", "Spiders", 180, 10, 420),
                         innings("Spiders", "Eagles", 160, 10, 390),
@@ -131,7 +132,7 @@ class MatchServiceTest {
 
     private MatchDataDto limitedOvers(String winner) {
         return new MatchDataDto(
-                "season-1", teams(), new TossDto("Eagles", "BAT"), rules(), 10, MatchType.OVERS,
+                "season-1", teams(), new TossDto("Eagles", "BAT"), rules(), 10, MatchType.OVERS, null,
                 List.of(
                         innings("EAGLES", "spiders", 100, 2, 60),
                         innings("Spiders", "Eagles", winner == null ? 100 : 90, 4, 60)
@@ -149,8 +150,8 @@ class MatchServiceTest {
 
     private InningsDto innings(String batting, String bowling, int runs, int wickets, int balls) {
         return new InningsDto(
-                batting, bowling, runs, wickets, balls,
-                Map.of(), Map.of(), new ExtrasDto(0, 0), Map.of(), List.of(), false, true
+                batting, bowling, 1, runs, wickets, balls,
+                Map.of(), Map.of(), new ExtrasDto(0, 0), Map.of(), List.of(), false, false, true, null
         );
     }
 
