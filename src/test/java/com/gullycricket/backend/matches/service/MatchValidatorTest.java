@@ -41,6 +41,7 @@ class MatchValidatorTest {
                 rules(),
                 10,
                 MatchType.OVERS,
+                null,
                 List.of(innings("Eagles", "Spiders"), innings("Spiders", "Eagles")),
                 new ResultDto(null, "TIE", 0, null)
         );
@@ -59,6 +60,7 @@ class MatchValidatorTest {
                 rules(),
                 10,
                 MatchType.OVERS,
+                null,
                 List.of(innings("EAGLES", "spiders"), innings("Spiders", "Eagles")),
                 result
         );
@@ -66,8 +68,8 @@ class MatchValidatorTest {
 
     private InningsDto innings(String batting, String bowling) {
         return new InningsDto(
-                batting, bowling, 80, 2, 60,
-                Map.of(), Map.of(), new ExtrasDto(0, 0), Map.of(), List.of(), false, true
+                batting, bowling, 1, 80, 2, 60,
+                Map.of(), Map.of(), new ExtrasDto(0, 0), Map.of(), List.of(), false, false, true, null
         );
     }
 

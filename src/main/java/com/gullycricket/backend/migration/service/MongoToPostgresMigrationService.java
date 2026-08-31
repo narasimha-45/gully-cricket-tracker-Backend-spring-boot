@@ -67,6 +67,10 @@ import java.util.Map;
  *     <li>Batting order wasn't captured — battingPosition is inferred from the
  *     iteration order of the battingStats map, which may not be reliable depending
  *     on how Mongo/BSON preserved key order.</li>
+ *     <li>No declare/follow-on/completion-reason data was captured, and no match-level
+ *     testConfig (innings-per-team, follow-on-enforced) either — every migrated Test
+ *     innings comes across as isFollowOn=false with a null completionReason, and
+ *     testConfig is left null.</li>
  * </ul>
  * Each match is migrated inside {@link MatchService#saveMatch}'s own transaction, so
  * one bad match rolls back on its own and doesn't abort the rest of the run. After
@@ -167,6 +171,7 @@ public class MongoToPostgresMigrationService {
                 toRulesDto(match.getRules()),
                 match.getTotalOvers() != null ? match.getTotalOvers() : 0,
                 toMatchType(match.getMatchType()),
+                null, // legacy Mongo shape never captured testConfig (inningsPerTeam/followOnEnforced)
                 toInningsList(match.getInnings()),
                 toResultDto(match.getResult())
         );
@@ -220,16 +225,20 @@ public class MongoToPostgresMigrationService {
             return List.of();
         }
         List<InningsDto> result = new ArrayList<>();
+        Map<String, Integer> perTeamCounter = new HashMap<>();
         for (MongoInningsDTO inning : mongoInnings) {
-            result.add(toInningsDto(inning));
+            String battingTeam = normalizeTeamName(inning.battingTeam());
+            int inningsNumber = perTeamCounter.merge(battingTeam, 1, Integer::sum);
+            result.add(toInningsDto(inning, inningsNumber));
         }
         return result;
     }
 
-    private InningsDto toInningsDto(MongoInningsDTO inning) {
+    private InningsDto toInningsDto(MongoInningsDTO inning, int inningsNumber) {
         return new InningsDto(
                 normalizeTeamName(inning.battingTeam()),
                 normalizeTeamName(inning.bowlingTeam()),
+                inningsNumber,
                 inning.totalRuns() != null ? inning.totalRuns() : 0,
                 inning.wickets() != null ? inning.wickets() : 0,
                 inning.balls() != null ? inning.balls() : 0,
@@ -239,7 +248,9 @@ public class MongoToPostgresMigrationService {
                 toDismissalsMap(inning.dismissals()),
                 List.of(),   // no ball-by-ball data in the legacy Mongo shape
                 false,       // no super-over flag in the legacy Mongo shape
-                Boolean.TRUE.equals(inning.completed())
+                false,       // no follow-on flag in the legacy Mongo shape
+                Boolean.TRUE.equals(inning.completed()),
+                null         // no completion reason (declared/all out/etc.) in the legacy Mongo shape
         );
     }
 

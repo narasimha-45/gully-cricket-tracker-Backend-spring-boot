@@ -131,6 +131,10 @@ public class MatchService {
         match.setTeamB(teamBEntity);
         match.setMatchType(dto.matchType());
         match.setTotalOvers(dto.totalOvers());
+        if (dto.testConfig() != null) {
+            match.setTestInningsPerTeam(dto.testConfig().inningsPerTeam());
+            match.setFollowOnEnforced(Boolean.TRUE.equals(dto.testConfig().followOnEnforced()));
+        }
         match.setSuperOver(hasSuperOver);
         match.setBattingFirstTeam(battingFirstTeam);
         match.setBattingSecondTeam(battingSecondTeam);
@@ -212,6 +216,8 @@ public class MatchService {
             summary.setBalls(inning.balls());
             summary.setSuperOver(false);
             summary.setCompleted(inning.completed());
+            summary.setFollowOn(inning.isFollowOn());
+            summary.setCompletionReason(inning.completionReason());
             match.getInningsSummaries().add(summary);
         }
     }
@@ -351,7 +357,7 @@ public class MatchService {
 
         return new MatchDataDto(
                 dto.seasonId(), normalizedTeams, normalizedToss, normalizeRules(dto.rules()), dto.totalOvers(),
-                dto.matchType(), normalizedInnings, normalizedResult
+                dto.matchType(), dto.testConfig(), normalizedInnings, normalizedResult
         );
     }
 
@@ -383,9 +389,10 @@ public class MatchService {
                 : inning.ballByBall().stream().map(this::normalizeBall).toList();
 
         return new InningsDto(
-                normalize(inning.battingTeam()), normalize(inning.bowlingTeam()),
+                normalize(inning.battingTeam()), normalize(inning.bowlingTeam()), inning.inningsNumber(),
                 inning.totalRuns(), inning.wickets(), inning.balls(), batting, bowling,
-                inning.extras(), dismissals, balls, inning.isSuperOver(), inning.completed()
+                inning.extras(), dismissals, balls, inning.isSuperOver(), inning.isFollowOn(),
+                inning.completed(), inning.completionReason()
         );
     }
 
