@@ -12,6 +12,7 @@ import com.gullycricket.backend.matches.entity.MatchInningsSummary;
 import com.gullycricket.backend.matches.entity.MatchStatus;
 import com.gullycricket.backend.matches.entity.MatchType;
 import com.gullycricket.backend.matches.repository.MatchRepository;
+import com.gullycricket.backend.matches.repository.MatchProjectionMaintenanceRepository;
 import com.gullycricket.backend.seasons.entity.Season;
 import com.gullycricket.backend.seasons.repository.SeasonRepository;
 import com.gullycricket.backend.seasons.service.SeasonService;
@@ -41,6 +42,7 @@ public class MatchService {
     private final TeamService teamService;
     private final MatchValidator matchValidator;
     private final SeasonService seasonService;
+    private final MatchProjectionMaintenanceRepository maintenanceRepository;
 
     @Transactional(readOnly = true)
     public MatchResponseDto getMatchById(String matchId) {
@@ -80,6 +82,8 @@ public class MatchService {
             CacheNames.FIELDING_LEADERBOARD
     }, allEntries = true)
     public MatchResponseDto saveMatch(MatchDataDto rawDto, String idempotencyKey) {
+        maintenanceRepository.acquireProjectionWriteLock();
+
         String normalizedIdempotencyKey = normalizeIdempotencyKey(idempotencyKey);
         if (normalizedIdempotencyKey != null) {
             Match existing = matchRepository.findByIdempotencyKey(normalizedIdempotencyKey).orElse(null);
@@ -89,15 +93,68 @@ public class MatchService {
             }
         }
 
-        // Validate before and after canonicalization: first protects normalization from
-        // malformed structures, second guarantees the canonical payload is internally consistent.
-        matchValidator.validate(rawDto);
-        MatchDataDto dto = normalizeNames(rawDto);
-        matchValidator.validate(dto);
-
+        MatchDataDto dto = validateAndNormalize(rawDto);
         Season season = seasonRepository.findById(dto.seasonId())
                 .orElseThrow(() -> new ResourceNotFoundException("Season not found: " + dto.seasonId()));
 
+        Match match = new Match();
+        applyCanonicalMatchState(match, dto, season);
+        match.setCompletedAt(LocalDateTime.now());
+        match.setIdempotencyKey(normalizedIdempotencyKey);
+
+        Match savedMatch = matchRepository.save(match);
+        processPlayerStatsService.processPlayerStats(savedMatch, dto);
+
+        // Recompute from source rows rather than relying on +1/-1 arithmetic.
+        seasonService.syncMatchesPlayed(season.getId());
+
+        long regularInnings = dto.innings().stream().filter(i -> !i.isSuperOver()).count();
+        log.info("Match created: matchId={}, seasonId={}, matchType={}, innings={}",
+                savedMatch.getId(), season.getId(), dto.matchType(), regularInnings);
+        return toResponse(savedMatch);
+    }
+
+    /**
+     * Replays a persisted match from matches.match_data into the denormalized Match columns,
+     * innings summaries and player/stat projections. The caller must delete the old projections
+     * first. Package-private by design: MatchRebuildService is the maintenance entry point.
+     */
+    void replayStoredMatch(Match match) {
+        if (match == null || match.getId() == null) {
+            throw new BadRequestException("A persisted match is required for replay");
+        }
+        if (match.getMatchData() == null || match.getMatchData().isNull()) {
+            throw new BadRequestException("Match has no stored match_data and cannot be rebuilt: " + match.getId());
+        }
+
+        final MatchDataDto rawDto;
+        try {
+            rawDto = objectMapper.convertValue(match.getMatchData(), MatchDataDto.class);
+        } catch (IllegalArgumentException ex) {
+            throw new BadRequestException("Invalid stored match_data for match " + match.getId() + ": " + ex.getMessage());
+        }
+
+        MatchDataDto dto = validateAndNormalize(rawDto);
+        String existingSeasonId = match.getSeason().getId();
+        if (!existingSeasonId.equals(dto.seasonId())) {
+            throw new BadRequestException(
+                    "Stored match_data seasonId does not match matches.season_id for match " + match.getId());
+        }
+
+        // Preserve identity, completedAt and idempotencyKey; everything else below is derived
+        // again from the canonical JSON payload.
+        applyCanonicalMatchState(match, dto, match.getSeason());
+        processPlayerStatsService.processPlayerStats(match, dto);
+    }
+
+    private MatchDataDto validateAndNormalize(MatchDataDto rawDto) {
+        matchValidator.validate(rawDto);
+        MatchDataDto dto = normalizeNames(rawDto);
+        matchValidator.validate(dto);
+        return dto;
+    }
+
+    private void applyCanonicalMatchState(Match match, MatchDataDto dto, Season season) {
         List<InningsDto> regularInnings = dto.innings().stream()
                 .filter(i -> !i.isSuperOver())
                 .toList();
@@ -109,8 +166,6 @@ public class MatchService {
         String teamBName = teamBDto.name();
         String winner = dto.result() == null ? null : dto.result().winner();
 
-        // Resolve both teams in one SELECT. With a remote PostgreSQL database, cutting
-        // a round trip here is more valuable than micro-optimizing Java code.
         Map<String, Team> existingTeams = new HashMap<>();
         for (Team team : teamService.getTeamsByNames(List.of(teamAName, teamBName))) {
             existingTeams.put(team.getTeamName(), team);
@@ -123,49 +178,51 @@ public class MatchService {
         Team battingFirstTeam = teamABattedFirst ? teamAEntity : teamBEntity;
         Team battingSecondTeam = teamABattedFirst ? teamBEntity : teamAEntity;
 
-        Match match = new Match();
+        // Reset all derived Match columns first so replay cannot retain stale values from a
+        // previous version of the projection logic.
         match.setSeason(season);
         match.setMatchData(objectMapper.valueToTree(dto));
         match.setStatus(MatchStatus.COMPLETED);
         match.setTeamA(teamAEntity);
         match.setTeamB(teamBEntity);
         match.setMatchType(dto.matchType());
+        match.setTeamAScore(0);
+        match.setTeamAWickets(0);
+        match.setTeamABallsFaced(0);
+        match.setTeamBScore(0);
+        match.setTeamBWickets(0);
+        match.setTeamBBallsFaced(0);
         match.setTotalOvers(dto.totalOvers());
-        if (dto.testConfig() != null) {
-            match.setTestInningsPerTeam(dto.testConfig().inningsPerTeam());
-            match.setFollowOnEnforced(Boolean.TRUE.equals(dto.testConfig().followOnEnforced()));
-        }
+        match.setWinnerTeam(null);
         match.setSuperOver(hasSuperOver);
+        match.setIsBattingFirstTeamWon(false);
         match.setBattingFirstTeam(battingFirstTeam);
         match.setBattingSecondTeam(battingSecondTeam);
-        match.setCompletedAt(LocalDateTime.now());
-        match.setIdempotencyKey(normalizedIdempotencyKey);
+        match.setWinByRuns(null);
+        match.setWinByWickets(null);
+        match.setIsInningsWin(false);
+        match.setIsMatchDrawn(false);
+        match.setIsMatchTied(false);
+        match.setWonBy(null);
+        match.setTestInningsPerTeam(dto.testConfig() == null ? null : dto.testConfig().inningsPerTeam());
+        match.setFollowOnEnforced(dto.testConfig() != null && Boolean.TRUE.equals(dto.testConfig().followOnEnforced()));
 
         if (hasText(winner)) {
             match.setIsBattingFirstTeamWon(winner.equals(battingFirstTeamName));
         }
 
-        // One innings representation for every format. Flat Match score columns are
-        // retained only as a backward-compatible read optimization for limited overs.
+        match.getInningsSummaries().clear();
         populateInningsSummaries(match, regularInnings, teamAName, teamAEntity, teamBEntity);
 
         if (dto.matchType() == MatchType.TEST) {
             applyTestResult(match, regularInnings, teamAName, teamBName, teamAEntity, teamBEntity,
-                    winner, dto.result() == null ? null : dto.result().type(), teamADto.players().size(), teamBDto.players().size());
+                    winner, dto.result() == null ? null : dto.result().type(),
+                    teamADto.players().size(), teamBDto.players().size());
         } else {
             applyLimitedOversResult(match, regularInnings, teamAName, teamBName, teamAEntity, teamBEntity,
-                    winner, dto.result() == null ? null : dto.result().type(), hasSuperOver, teamADto.players().size(), teamBDto.players().size(), battingFirstTeamName);
+                    winner, dto.result() == null ? null : dto.result().type(), hasSuperOver,
+                    teamADto.players().size(), teamBDto.players().size(), battingFirstTeamName);
         }
-
-        Match savedMatch = matchRepository.save(match);
-        processPlayerStatsService.processPlayerStats(savedMatch, dto);
-
-        // Atomic database increment prevents lost updates when two matches are created concurrently.
-        seasonService.incrementMatchesPlayed(season.getId());
-
-        log.info("Match created: matchId={}, seasonId={}, matchType={}, innings={}",
-                savedMatch.getId(), season.getId(), dto.matchType(), regularInnings.size());
-        return toResponse(savedMatch);
     }
 
     private MatchResponseDto toResponse(Match match) {

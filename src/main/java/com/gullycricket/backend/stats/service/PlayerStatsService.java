@@ -107,25 +107,97 @@ public class PlayerStatsService {
     }
 
     public PlayerComparisonDto comparePlayers(String player1Id, String player2Id, String seasonId) {
-        return comparePlayers(player1Id, player2Id, seasonId, null);
+        return comparePlayers(player1Id, player2Id, new PlayerComparisonFilter(
+                seasonId, null, null, null, null,
+                null, null, null,
+                null, null
+        ));
     }
 
     public PlayerComparisonDto comparePlayers(String player1Id, String player2Id, String seasonId, MatchType matchType) {
-        PlayerProfileDto first = getPlayerProfile(player1Id, seasonId, matchType);
-        PlayerProfileDto second = getPlayerProfile(player2Id, seasonId, matchType);
+        return comparePlayers(player1Id, player2Id, new PlayerComparisonFilter(
+                seasonId, matchType, null, null, null,
+                null, null, null,
+                null, null
+        ));
+    }
+
+    public PlayerComparisonDto comparePlayers(String player1Id, String player2Id, PlayerComparisonFilter filter) {
+        PlayerComparisonFilter safeFilter = filter == null
+                ? new PlayerComparisonFilter(
+                null, null, null, null, null,
+                null, null, null,
+                null, null
+        )
+                : filter;
+
         return new PlayerComparisonDto(
-                seasonId,
-                comparisonSide(first),
-                comparisonSide(second)
+                safeFilter.seasonId(),
+                comparisonSide(player1Id, safeFilter),
+                comparisonSide(player2Id, safeFilter)
         );
     }
 
-    private PlayerComparisonSideDto comparisonSide(PlayerProfileDto profile) {
+    private PlayerComparisonSideDto comparisonSide(String playerId, PlayerComparisonFilter filter) {
+        List<PlayerStatReadRow> allRows = playerProfileReadRepository.findRows(
+                playerId, filter.seasonId(), filter.matchType());
+        String playerName = allRows.isEmpty()
+                ? playerRepository.findById(playerId)
+                .orElseThrow(() -> new ResourceNotFoundException("Player not found: " + playerId))
+                .getName()
+                : allRows.getFirst().playerName();
+
+        List<PlayerStatReadRow> commonRows = allRows.stream()
+                .filter(row -> blank(filter.teamId()) || Objects.equals(row.teamId(), filter.teamId()))
+                .filter(row -> blank(filter.opponentTeamId()) || Objects.equals(row.opponentTeamId(), filter.opponentTeamId()))
+                .filter(row -> filter.result() == null || resultOf(row) == filter.result())
+                .toList();
+
+        List<PlayerStatReadRow> battingRows = commonRows.stream()
+                .filter(PlayerStatReadRow::batted)
+                .filter(row -> filter.battingInningsNumber() == null
+                        || Objects.equals(row.inningsNumber(), filter.battingInningsNumber()))
+                .filter(row -> filter.battingPosition() == null
+                        || Objects.equals(row.battingPosition(), filter.battingPosition()))
+                .filter(row -> filter.minBallsFaced() == null
+                        || row.ballsFaced() >= filter.minBallsFaced())
+                .toList();
+
+        List<PlayerStatReadRow> bowlingRows = commonRows.stream()
+                .filter(PlayerStatReadRow::bowled)
+                .filter(row -> filter.bowlingInningsNumber() == null
+                        || Objects.equals(row.inningsNumber(), filter.bowlingInningsNumber()))
+                .filter(row -> filter.minOversBowled() == null
+                        || row.ballsBowled() >= filter.minOversBowled() * 6)
+                .toList();
+
+        int matchesPlayed = distinctMatches(commonRows).size();
+        int matchesWon = (int) commonRows.stream()
+                .filter(PlayerStatReadRow::matchWon)
+                .map(PlayerStatReadRow::matchId)
+                .distinct()
+                .count();
+        int motm = (int) commonRows.stream()
+                .filter(PlayerStatReadRow::playerOfTheMatch)
+                .map(PlayerStatReadRow::matchId)
+                .distinct()
+                .count();
+
         return new PlayerComparisonSideDto(
-                profile.playerId(), profile.playerName(), profile.totalMatchesPlayed(), profile.totalMatchesWon(),
-                profile.winPercentage(), profile.playerOfTheMatchAwards(), profile.overallBatting(),
-                profile.overallBowling(), profile.overallFielding()
+                playerId,
+                playerName,
+                matchesPlayed,
+                matchesWon,
+                round2(matchesPlayed == 0 ? 0 : matchesWon * 100.0 / matchesPlayed),
+                motm,
+                computeBatting(playerId, playerName, battingRows, distinctMatches(battingRows).size()),
+                computeBowling(playerId, playerName, bowlingRows, distinctMatches(bowlingRows).size()),
+                computeFielding(playerId, playerName, commonRows, matchesPlayed)
         );
+    }
+
+    private boolean blank(String value) {
+        return value == null || value.isBlank();
     }
 
     public PlayerProfileDto getPlayerProfile(String playerId, String seasonId) {
