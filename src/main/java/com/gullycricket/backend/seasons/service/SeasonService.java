@@ -80,13 +80,23 @@ public class SeasonService {
     }
 
 
+    /**
+     * Recomputes the denormalized season counter from the matches table instead of applying
+     * +/- arithmetic. This makes repair/delete/replay operations drift-proof.
+     */
     @Transactional
     @CacheEvict(value = CacheNames.ALL_SEASONS, allEntries = true)
-    public void incrementMatchesPlayed(String seasonId) {
-        int updated = seasonRepository.incrementMatchesPlayed(seasonId);
+    public void syncMatchesPlayed(String seasonId) {
+        int updated = seasonRepository.syncMatchesPlayed(seasonId);
         if (updated == 0) {
             throw new ResourceNotFoundException("Season not found with ID: " + seasonId);
         }
+    }
+
+    @Transactional
+    @CacheEvict(value = CacheNames.ALL_SEASONS, allEntries = true)
+    public void syncAllMatchesPlayed() {
+        seasonRepository.syncAllMatchesPlayed();
     }
 
     @Cacheable(value = CacheNames.SEASON_MATCHES, key = "#seasonId", sync = true)
