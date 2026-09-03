@@ -57,6 +57,8 @@ class LiveMatchStateServiceTest {
         assertThat(summaries).hasSize(1);
         assertThat(summaries.getFirst().teamA()).isEqualTo("eagles");
         assertThat(summaries.getFirst().runs()).isEqualTo(4);
+        assertThat(summaries.getFirst().tossWinner()).isEqualTo("eagles");
+        assertThat(summaries.getFirst().tossDecision()).isEqualTo("bat");
     }
 
     @Test
@@ -80,6 +82,9 @@ class LiveMatchStateServiceTest {
         match.put("matchType", "OVERS");
         match.put("totalOvers", 20);
         match.put("updatedAt", 1);
+        match.putObject("toss")
+                .put("winner", "eagles")
+                .put("decision", "bat");
         ObjectNode teams = match.putObject("teams");
         teams.putObject("teamA").put("name", "eagles");
         teams.putObject("teamB").put("name", "spiders");

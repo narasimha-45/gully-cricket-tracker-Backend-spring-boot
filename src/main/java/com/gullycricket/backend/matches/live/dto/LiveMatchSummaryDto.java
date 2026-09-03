@@ -1,5 +1,7 @@
 package com.gullycricket.backend.matches.live.dto;
 
+import java.util.List;
+
 public record LiveMatchSummaryDto(
         String matchId,
         String seasonId,
@@ -11,6 +13,11 @@ public record LiveMatchSummaryDto(
         int balls,
         String matchType,
         Integer totalOvers,
+        Integer testInningsPerTeam,
+        String tossWinner,
+        String tossDecision,
+        int currentInningsIndex,
+        List<LiveInningsScoreDto> innings,
         long revision,
         long updatedAt
 ) {

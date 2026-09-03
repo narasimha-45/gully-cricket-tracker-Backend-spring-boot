@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.gullycricket.backend.matches.live.dto.LiveInningsScoreDto;
 import com.gullycricket.backend.matches.live.dto.LiveMatchSnapshotDto;
 import com.gullycricket.backend.matches.live.dto.LiveMatchSummaryDto;
 import lombok.extern.slf4j.Slf4j;
@@ -255,6 +256,25 @@ public class LiveMatchStateService {
                 ? innings.get(inningsIndex)
                 : null;
 
+        List<LiveInningsScoreDto> inningsScores = new ArrayList<>();
+        if (innings.isArray()) {
+            for (JsonNode item : innings) {
+                inningsScores.add(new LiveInningsScoreDto(
+                        item.path("battingTeam").asText(""),
+                        item.path("inningsNumber").asInt(1),
+                        item.path("totalRuns").asInt(0),
+                        item.path("wickets").asInt(0),
+                        item.path("balls").asInt(0),
+                        item.path("completionReason").isMissingNode() || item.path("completionReason").isNull()
+                                ? null
+                                : item.path("completionReason").asText(),
+                        item.path("isFollowOn").asBoolean(false) || item.path("followOn").asBoolean(false),
+                        item.path("isSuperOver").asBoolean(false),
+                        item.path("completed").asBoolean(false)
+                ));
+            }
+        }
+
         return new LiveMatchSummaryDto(
                 entry.matchId(),
                 entry.seasonId(),
@@ -268,6 +288,14 @@ public class LiveMatchStateService {
                 snapshot.get("totalOvers") == null || snapshot.get("totalOvers").isNull()
                         ? null
                         : snapshot.get("totalOvers").asInt(),
+                snapshot.path("testConfig").path("inningsPerTeam").isMissingNode()
+                                || snapshot.path("testConfig").path("inningsPerTeam").isNull()
+                        ? null
+                        : snapshot.path("testConfig").path("inningsPerTeam").asInt(),
+                snapshot.path("toss").path("winner").asText(""),
+                snapshot.path("toss").path("decision").asText(""),
+                inningsIndex,
+                List.copyOf(inningsScores),
                 entry.revision(),
                 entry.updatedAt()
         );
