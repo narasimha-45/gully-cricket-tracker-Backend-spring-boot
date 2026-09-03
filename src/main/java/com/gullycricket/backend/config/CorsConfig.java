@@ -25,7 +25,7 @@ public class CorsConfig {
                 registry.addMapping("/**")
                         .allowedOrigins(origins)
                         .allowedMethods("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS")
-                        .allowedHeaders("Content-Type", "Authorization", "Idempotency-Key", "X-Request-Id", "X-API-Key")
+                        .allowedHeaders("Content-Type", "Authorization", "Idempotency-Key", "X-Request-Id", "X-API-Key", "X-Live-Scorer-Token")
                         .exposedHeaders("X-Request-Id", "X-Response-Time-Ms", "Server-Timing")
                         .allowCredentials(true)
                         .maxAge(3600);

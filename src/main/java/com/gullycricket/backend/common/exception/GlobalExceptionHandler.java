@@ -1,5 +1,6 @@
 package com.gullycricket.backend.common.exception;
 
+import com.gullycricket.backend.matches.live.service.LiveMatchStateService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -31,6 +32,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ConflictException.class)
     public ResponseEntity<ApiError> handleConflict(ConflictException ex, HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, "CONFLICT", ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(LiveMatchStateService.UnauthorizedLiveScorerException.class)
+    public ResponseEntity<ApiError> handleUnauthorizedLiveScorer(
+            LiveMatchStateService.UnauthorizedLiveScorerException ex,
+            HttpServletRequest request) {
+        return build(HttpStatus.FORBIDDEN, "LIVE_SCORER_FORBIDDEN", ex.getMessage(), request);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
