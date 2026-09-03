@@ -31,7 +31,9 @@ public class WriteApiKeyFilter extends OncePerRequestFilter {
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String method = request.getMethod();
         boolean safeMethod = "GET".equals(method) || "HEAD".equals(method) || "OPTIONS".equals(method);
-        return configuredApiKey.isBlank() || safeMethod || request.getRequestURI().startsWith("/actuator/");
+        boolean liveScoringTokenProtected = request.getRequestURI().startsWith("/live-matches/");
+        return configuredApiKey.isBlank() || safeMethod || liveScoringTokenProtected
+                || request.getRequestURI().startsWith("/actuator/");
     }
 
     @Override
