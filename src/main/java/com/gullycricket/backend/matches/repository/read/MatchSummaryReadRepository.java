@@ -138,15 +138,19 @@ public class MatchSummaryReadRepository {
     }
 
     public List<MatchSummaryRow> findCompleted(String seasonId) {
-        return findCompleted(seasonId, null);
+        return findCompleted(singleton(seasonId), null);
     }
 
     public List<MatchSummaryRow> findCompleted(String seasonId, MatchType matchType) {
+        return findCompleted(singleton(seasonId), matchType);
+    }
+
+    public List<MatchSummaryRow> findCompleted(List<String> seasonIds, MatchType matchType) {
         MapSqlParameterSource params = new MapSqlParameterSource("completed", MatchStatus.COMPLETED.name());
         StringBuilder sql = new StringBuilder(BASE_SQL).append(" AND m.status = :completed");
-        if (seasonId != null && !seasonId.isBlank()) {
-            sql.append(" AND m.season_id = :seasonId");
-            params.addValue("seasonId", seasonId.trim());
+        if (seasonIds != null && !seasonIds.isEmpty()) {
+            sql.append(" AND m.season_id IN (:seasonIds)");
+            params.addValue("seasonIds", seasonIds);
         }
         if (matchType != null) {
             sql.append(" AND m.match_type = :matchType");
@@ -161,6 +165,10 @@ public class MatchSummaryReadRepository {
      * full scheduled quota, while other innings use the actual legal balls.
      */
     public List<TeamNrrRow> findTeamNrr(String seasonId) {
+        return findTeamNrr(singleton(seasonId));
+    }
+
+    public List<TeamNrrRow> findTeamNrr(List<String> seasonIds) {
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("completed", MatchStatus.COMPLETED.name())
                 .addValue("oversMatchType", MatchType.OVERS.name());
@@ -185,9 +193,9 @@ public class MatchSummaryReadRepository {
                       AND (m.winner_team_id IS NOT NULL OR COALESCE(m.is_match_tied, FALSE) = TRUE)
                 """);
 
-        if (seasonId != null && !seasonId.isBlank()) {
-            sql.append(" AND m.season_id = :seasonId");
-            params.addValue("seasonId", seasonId.trim());
+        if (seasonIds != null && !seasonIds.isEmpty()) {
+            sql.append(" AND m.season_id IN (:seasonIds)");
+            params.addValue("seasonIds", seasonIds);
         }
 
         sql.append("""
@@ -240,6 +248,10 @@ public class MatchSummaryReadRepository {
             long runsConceded,
             long ballsBowled
     ) {
+    }
+
+    private static List<String> singleton(String value) {
+        return value == null || value.isBlank() ? null : List.of(value.trim());
     }
 
     private MatchSummaryRow mapRow(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {

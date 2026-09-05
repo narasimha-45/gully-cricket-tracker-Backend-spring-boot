@@ -99,10 +99,10 @@ class ReadModelRepositoryIntegrationTest {
     @Test
     void leaderboardsAggregateInPostgresWithoutHydratingMatchJson() {
         var batting = statsReadRepository.findBattingLeaderboard(
-                new BattingStatsFilter("s1", null, null, null, null, null, null),
+                new BattingStatsFilter(java.util.List.of("s1"), null, null, null, null, null, null),
                 BattingSortBy.RUNS, null, 10);
         var bowling = statsReadRepository.findBowlingLeaderboard(
-                new BowlingStatsFilter("s1", null, null, null, null, null),
+                new BowlingStatsFilter(java.util.List.of("s1"), null, null, null, null, null),
                 BowlingSortBy.WICKETS, null, 10);
 
         assertThat(batting).hasSize(1);

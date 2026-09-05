@@ -73,11 +73,15 @@ public class TeamStatsService {
     }
 
     public List<TeamLeaderboardEntryDto> getTeamLeaderboard(String seasonId, TeamSortBy sortBy, Integer limit) {
-        return getTeamLeaderboard(seasonId, null, sortBy, limit);
+        return getTeamLeaderboard(singleton(seasonId), null, sortBy, limit);
     }
 
     public List<TeamLeaderboardEntryDto> getTeamLeaderboard(String seasonId, MatchType matchType, TeamSortBy sortBy, Integer limit) {
-        List<MatchSummaryRow> allMatches = matchSummaryReadRepository.findCompleted(seasonId, matchType);
+        return getTeamLeaderboard(singleton(seasonId), matchType, sortBy, limit);
+    }
+
+    public List<TeamLeaderboardEntryDto> getTeamLeaderboard(List<String> seasonIds, MatchType matchType, TeamSortBy sortBy, Integer limit) {
+        List<MatchSummaryRow> allMatches = matchSummaryReadRepository.findCompleted(seasonIds, matchType);
         Map<String, List<MatchSummaryRow>> matchesByTeamId = new HashMap<>();
         Map<String, String> teamNames = new HashMap<>();
 
@@ -93,7 +97,7 @@ public class TeamStatsService {
         // is calculated only from completed OVERS matches.
         Map<String, MatchSummaryReadRepository.TeamNrrRow> nrrByTeamId = matchType == MatchType.TEST
                 ? Map.of()
-                : matchSummaryReadRepository.findTeamNrr(seasonId).stream()
+                : matchSummaryReadRepository.findTeamNrr(seasonIds).stream()
                 .collect(Collectors.toMap(MatchSummaryReadRepository.TeamNrrRow::teamId, row -> row));
 
         List<TeamLeaderboardEntryDto> entries = matchesByTeamId.entrySet().stream()
@@ -126,6 +130,10 @@ public class TeamStatsService {
         entries.sort(teamComparator(sortBy));
         int safeLimit = limit == null ? 50 : Math.max(1, Math.min(limit, 100));
         return entries.stream().limit(safeLimit).toList();
+    }
+
+    private static List<String> singleton(String value) {
+        return value == null || value.isBlank() ? null : List.of(value.trim());
     }
 
     private double calculateNetRunRate(MatchSummaryReadRepository.TeamNrrRow nrr) {

@@ -143,9 +143,9 @@ public class PlayerProfileReadRepository {
             WHERE mpp.player_id = :playerId
             """);
 
-        if (filter.seasonId() != null && !filter.seasonId().isBlank()) {
-            sql.append(" AND mpp.season_id = :seasonId");
-            params.addValue("seasonId", filter.seasonId().trim());
+        if (filter.seasonIds() != null && !filter.seasonIds().isEmpty()) {
+            sql.append(" AND mpp.season_id IN (:seasonIds)");
+            params.addValue("seasonIds", filter.seasonIds());
         }
 
         if (filter.matchType() != null) {
@@ -153,47 +153,24 @@ public class PlayerProfileReadRepository {
             params.addValue("matchType", filter.matchType().name());
         }
 
-        if (filter.teamId() != null && !filter.teamId().isBlank()) {
-            sql.append(" AND mpp.team_represented_id = :teamId");
-            params.addValue("teamId", filter.teamId().trim());
+        if (filter.teamIds() != null && !filter.teamIds().isEmpty()) {
+            sql.append(" AND mpp.team_represented_id IN (:teamIds)");
+            params.addValue("teamIds", filter.teamIds());
         }
 
-        if (filter.opponentTeamId() != null
-                && !filter.opponentTeamId().isBlank()) {
-            sql.append(" AND mpp.opposition_team_id = :opponentTeamId");
-            params.addValue(
-                    "opponentTeamId",
-                    filter.opponentTeamId().trim()
-            );
+        if (filter.opponentTeamIds() != null && !filter.opponentTeamIds().isEmpty()) {
+            sql.append(" AND mpp.opposition_team_id IN (:opponentTeamIds)");
+            params.addValue("opponentTeamIds", filter.opponentTeamIds());
         }
 
-        if (filter.result() != null) {
-            sql.append(switch (filter.result()) {
-                case WIN ->
-                        " AND mpp.match_won = TRUE";
-
-                case LOSS ->
-                        """
-                         AND mpp.match_won = FALSE
-                         AND COALESCE(m.is_match_tied, FALSE) = FALSE
-                         AND COALESCE(m.is_match_drawn, FALSE) = FALSE
-                         AND m.winner_team_id IS NOT NULL
-                        """;
-
-                case TIE ->
-                        " AND COALESCE(m.is_match_tied, FALSE) = TRUE";
-
-                case NO_RESULT ->
-                        """
-                         AND (
-                             COALESCE(m.is_match_drawn, FALSE) = TRUE
-                             OR (
-                                 m.winner_team_id IS NULL
-                                 AND COALESCE(m.is_match_tied, FALSE) = FALSE
-                             )
-                         )
-                        """;
-            });
+        if (filter.results() != null && !filter.results().isEmpty()) {
+            List<String> resultConditions = filter.results().stream().distinct().map(result -> switch (result) {
+                case WIN -> "(mpp.match_won = TRUE AND COALESCE(m.is_match_tied, FALSE) = FALSE AND COALESCE(m.is_match_drawn, FALSE) = FALSE)";
+                case LOSS -> "(mpp.match_won = FALSE AND COALESCE(m.is_match_tied, FALSE) = FALSE AND COALESCE(m.is_match_drawn, FALSE) = FALSE AND m.winner_team_id IS NOT NULL)";
+                case TIE -> "(COALESCE(m.is_match_tied, FALSE) = TRUE)";
+                case NO_RESULT -> "(COALESCE(m.is_match_drawn, FALSE) = TRUE OR (m.winner_team_id IS NULL AND COALESCE(m.is_match_tied, FALSE) = FALSE))";
+            }).toList();
+            sql.append(" AND (").append(String.join(" OR ", resultConditions)).append(")");
         }
 
         sql.append("""
