@@ -3,14 +3,16 @@ package com.gullycricket.backend.stats.dto;
 import com.gullycricket.backend.matches.entity.MatchType;
 import com.gullycricket.backend.stats.enums.MatchResult;
 
+import java.util.List;
+
 public record PartnershipStatsFilter(
-        String seasonId,
+        List<String> seasonIds,
         MatchType matchType,
-        String teamId,
-        String opponentTeamId,
-        Integer inningsNumber,
-        MatchResult result,
-        Integer partnershipNumber,
+        List<String> teamIds,
+        List<String> opponentTeamIds,
+        List<Integer> inningsNumbers,
+        List<MatchResult> results,
+        List<Integer> partnershipNumbers,
         String playerId,
         String partnerId,
         Boolean battingFirst

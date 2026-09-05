@@ -3,13 +3,15 @@ package com.gullycricket.backend.stats.dto;
 import com.gullycricket.backend.matches.entity.MatchType;
 import com.gullycricket.backend.stats.enums.MatchResult;
 
+import java.util.List;
+
 public record BattingStatsFilter(
-        String seasonId,
+        List<String> seasonIds,
         MatchType matchType,
-        String teamId,
-        String opponentTeamId,
-        Integer battingPosition,
-        Integer inningsNumber,
-        MatchResult result
+        List<String> teamIds,
+        List<String> opponentTeamIds,
+        List<Integer> battingPositions,
+        List<Integer> inningsNumbers,
+        List<MatchResult> results
 ) {
 }

@@ -69,7 +69,7 @@ class MatchValidatorTest {
     private InningsDto innings(String batting, String bowling) {
         return new InningsDto(
                 batting, bowling, 1, 80, 2, 60,
-                Map.of(), Map.of(), new ExtrasDto(0, 0), Map.of(), List.of(), false, false, true, null
+                Map.of(), Map.of(), new ExtrasDto(0, 0, 0), Map.of(), List.of(), false, false, true, null
         );
     }
 

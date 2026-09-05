@@ -295,11 +295,12 @@ public class MongoToPostgresMigrationService {
 
     private ExtrasDto toExtrasDto(MongoExtrasDTO extras) {
         if (extras == null) {
-            return new ExtrasDto(0, 0);
+            return new ExtrasDto(0, 0, 0);
         }
         return new ExtrasDto(
                 extras.wides() != null ? extras.wides() : 0,
-                extras.noBalls() != null ? extras.noBalls() : 0
+                extras.noBalls() != null ? extras.noBalls() : 0,
+                0 // legacy Mongo payload did not track byes
         );
     }
 

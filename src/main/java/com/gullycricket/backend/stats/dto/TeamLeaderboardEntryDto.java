@@ -10,6 +10,7 @@ public record TeamLeaderboardEntryDto(
         Integer matchesTied,
         Integer matchesNoResult,
         Double winPercentage,
+        Double netRunRate,
 
         Integer timesWonBattingFirst,
         Integer timesWonChasing,

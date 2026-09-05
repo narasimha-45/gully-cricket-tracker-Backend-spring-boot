@@ -2,8 +2,10 @@ package com.gullycricket.backend.stats.dto;
 
 import com.gullycricket.backend.matches.entity.MatchType;
 
+import java.util.List;
+
 public record TeamStatsFilter(
-        String seasonId,
+        List<String> seasonIds,
         MatchType matchType
 ) {
 }

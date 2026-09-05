@@ -94,6 +94,11 @@ public class MatchValidator {
         require(inning.totalRuns() >= 0, "innings " + sequence + " totalRuns cannot be negative");
         require(inning.wickets() >= 0, "innings " + sequence + " wickets cannot be negative");
         require(inning.balls() >= 0, "innings " + sequence + " balls cannot be negative");
+        if (inning.extras() != null) {
+            require(inning.extras().wides() >= 0, "innings " + sequence + " wides cannot be negative");
+            require(inning.extras().noBalls() >= 0, "innings " + sequence + " noBalls cannot be negative");
+            require(inning.extras().byes() >= 0, "innings " + sequence + " byes cannot be negative");
+        }
 
         Set<String> battingPlayers = battingTeam.equals(teamAName) ? teamAPlayers : teamBPlayers;
         Set<String> bowlingPlayers = bowlingTeam.equals(teamAName) ? teamAPlayers : teamBPlayers;
