@@ -389,6 +389,8 @@ public class ProcessPlayerStatsService {
 
                     if (batterRuns == 0) {
                         batterMatch.setDotBallsPlayed(batterMatch.getDotBallsPlayed() + 1);
+                    }
+                    if (totalRuns == 0) {
                         bowlerMatch.setDotBallsBowled(bowlerMatch.getDotBallsBowled() + 1);
                     }
 
@@ -494,8 +496,8 @@ public class ProcessPlayerStatsService {
     }
 
     private int batterRuns(BallDto ball, RulesDto rules) {
-        if (ball.type() == BallType.WIDE) {
-            return 0; // all wide runs are extras, including multiple wides
+        if (ball.type() == BallType.WIDE || ball.type() == BallType.BYE) {
+            return 0; // wides and byes never belong to the batter
         }
         int penalty = 0;
         if (ball.type() == BallType.NO_BALL && rules != null && rules.noBall() != null && rules.noBall().extraRun()) {

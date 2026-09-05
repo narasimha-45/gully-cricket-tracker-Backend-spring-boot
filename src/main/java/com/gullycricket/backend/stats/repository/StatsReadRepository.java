@@ -55,11 +55,11 @@ public class StatsReadRepository {
             Integer limit
     ) {
         MapSqlParameterSource params = new MapSqlParameterSource();
-        String where = commonWhere(params, filter.seasonId(), filter.matchType(), filter.teamId(),
-                filter.opponentTeamId(), filter.inningsNumber(), filter.result());
-        if (filter.battingPosition() != null) {
-            where += " AND pm.batting_position = :battingPosition";
-            params.addValue("battingPosition", filter.battingPosition());
+        String where = commonWhere(params, filter.seasonIds(), filter.matchType(), filter.teamIds(),
+                filter.opponentTeamIds(), filter.inningsNumbers(), filter.results());
+        if (hasValues(filter.battingPositions())) {
+            where += " AND pm.batting_position IN (:battingPositions)";
+            params.addValue("battingPositions", filter.battingPositions());
         }
 
         int safeMinInnings = minInnings == null ? 0 : Math.max(0, minInnings);
@@ -77,7 +77,7 @@ public class StatsReadRepository {
             case RUNS -> "total_runs DESC, strike_rate DESC, player_name ASC";
         };
 
-        String sql = buildBattingSql(where, orderBy, participationCountExpression(filter.seasonId(), filter.matchType(), filter.teamId(), filter.opponentTeamId(), filter.result(), "pm.player_id"));
+        String sql = buildBattingSql(where, orderBy, participationCountExpression(filter.seasonIds(), filter.matchType(), filter.teamIds(), filter.opponentTeamIds(), filter.results(), "pm.player_id"));
 
         return queryTimer.record("stats.battingLeaderboard", () -> jdbc.query(sql, params, (rs, rowNum) -> {
             Double average = nullableDouble(rs, "batting_average");
@@ -98,8 +98,8 @@ public class StatsReadRepository {
             Integer limit
     ) {
         MapSqlParameterSource params = new MapSqlParameterSource();
-        String where = commonWhere(params, filter.seasonId(), filter.matchType(), filter.teamId(),
-                filter.opponentTeamId(), filter.inningsNumber(), filter.result());
+        String where = commonWhere(params, filter.seasonIds(), filter.matchType(), filter.teamIds(),
+                filter.opponentTeamIds(), filter.inningsNumbers(), filter.results());
 
         int safeMinInnings = minInnings == null ? 0 : Math.max(0, minInnings);
         int safeLimit = safeLimit(limit);
@@ -113,7 +113,7 @@ public class StatsReadRepository {
             case WICKETS -> "total_wickets DESC, bowling_average ASC NULLS LAST, player_name ASC";
         };
 
-        String sql = buildBowlingSql(where, orderBy, participationCountExpression(filter.seasonId(), filter.matchType(), filter.teamId(), filter.opponentTeamId(), filter.result(), "f.player_id"));
+        String sql = buildBowlingSql(where, orderBy, participationCountExpression(filter.seasonIds(), filter.matchType(), filter.teamIds(), filter.opponentTeamIds(), filter.results(), "f.player_id"));
 
         return queryTimer.record("stats.bowlingLeaderboard", () -> jdbc.query(sql, params, (rs, rowNum) -> {
             int totalBalls = rs.getInt("total_balls_bowled");
@@ -148,8 +148,8 @@ public class StatsReadRepository {
             Integer limit
     ) {
         MapSqlParameterSource params = new MapSqlParameterSource();
-        String where = commonWhere(params, filter.seasonId(), filter.matchType(), filter.teamId(),
-                filter.opponentTeamId(), filter.inningsNumber(), filter.result());
+        String where = commonWhere(params, filter.seasonIds(), filter.matchType(), filter.teamIds(),
+                filter.opponentTeamIds(), filter.inningsNumbers(), filter.results());
         params.addValue("limit", safeLimit(limit));
 
         String orderBy = switch (sortBy == null ? FieldingSortBy.DISMISSALS : sortBy) {
@@ -160,7 +160,7 @@ public class StatsReadRepository {
             case DISMISSALS -> "(SUM(pm.catches_taken) + SUM(pm.run_outs) + SUM(pm.stumpings)) DESC, p.name ASC";
         };
 
-        String sql = buildFieldingSql(where, orderBy, participationCountExpression(filter.seasonId(), filter.matchType(), filter.teamId(), filter.opponentTeamId(), filter.result(), "pm.player_id"));
+        String sql = buildFieldingSql(where, orderBy, participationCountExpression(filter.seasonIds(), filter.matchType(), filter.teamIds(), filter.opponentTeamIds(), filter.results(), "pm.player_id"));
 
         return queryTimer.record("stats.fieldingLeaderboard", () -> jdbc.query(sql, params, (rs, rowNum) -> new FieldingAndMiscStatsResponse(
                 rs.getString("player_id"),
@@ -470,15 +470,15 @@ public class StatsReadRepository {
 
     private String partnershipWhere(MapSqlParameterSource params, PartnershipStatsFilter filter) {
         StringBuilder where = new StringBuilder(" WHERE 1 = 1");
-        if (hasText(filter.seasonId())) { where.append(" AND pp.season_id = :seasonId"); params.addValue("seasonId", filter.seasonId().trim()); }
+        appendInFilter(where, params, "pp.season_id", "seasonIds", filter.seasonIds());
         if (filter.matchType() != null) { where.append(" AND pp.match_type = :matchType"); params.addValue("matchType", filter.matchType().name()); }
-        if (hasText(filter.teamId())) { where.append(" AND pp.team_represented_id = :teamId"); params.addValue("teamId", filter.teamId().trim()); }
-        if (hasText(filter.opponentTeamId())) {
-            where.append(" AND (CASE WHEN m.team_a_id = pp.team_represented_id THEN m.team_b_id ELSE m.team_a_id END) = :opponentTeamId");
-            params.addValue("opponentTeamId", filter.opponentTeamId().trim());
+        appendInFilter(where, params, "pp.team_represented_id", "teamIds", filter.teamIds());
+        if (hasValues(filter.opponentTeamIds())) {
+            where.append(" AND (CASE WHEN m.team_a_id = pp.team_represented_id THEN m.team_b_id ELSE m.team_a_id END) IN (:opponentTeamIds)");
+            params.addValue("opponentTeamIds", filter.opponentTeamIds());
         }
-        if (filter.inningsNumber() != null) { where.append(" AND pp.innings_number = :inningsNumber"); params.addValue("inningsNumber", filter.inningsNumber()); }
-        if (filter.partnershipNumber() != null) { where.append(" AND pp.partnership_number = :partnershipNumber"); params.addValue("partnershipNumber", filter.partnershipNumber()); }
+        appendInFilter(where, params, "pp.innings_number", "inningsNumbers", filter.inningsNumbers());
+        appendInFilter(where, params, "pp.partnership_number", "partnershipNumbers", filter.partnershipNumbers());
         if (filter.battingFirst() != null) { where.append(" AND pp.batting_first = :battingFirst"); params.addValue("battingFirst", filter.battingFirst()); }
         if (hasText(filter.playerId()) && hasText(filter.partnerId())) {
             where.append(" AND ((pp.player1_id = :playerId AND pp.player2_id = :partnerId) OR (pp.player1_id = :partnerId AND pp.player2_id = :playerId))");
@@ -491,34 +491,20 @@ public class StatsReadRepository {
             where.append(" AND (pp.player1_id = :partnerId OR pp.player2_id = :partnerId)");
             params.addValue("partnerId", filter.partnerId().trim());
         }
-        if (filter.result() != null) {
-            where.append(switch (filter.result()) {
-                case WIN -> " AND pp.match_won = TRUE";
-                case LOSS -> " AND pp.match_won = FALSE AND COALESCE(m.is_match_tied, FALSE) = FALSE AND COALESCE(m.is_match_drawn, FALSE) = FALSE AND m.winner_team_id IS NOT NULL";
-                case TIE -> " AND COALESCE(m.is_match_tied, FALSE) = TRUE";
-                case NO_RESULT -> " AND (COALESCE(m.is_match_drawn, FALSE) = TRUE OR (m.winner_team_id IS NULL AND COALESCE(m.is_match_tied, FALSE) = FALSE))";
-            });
-        }
+        where.append(resultCondition(filter.results(), "pp.match_won", "m"));
         return where.toString();
     }
 
     private String rivalryWhere(MapSqlParameterSource params, RivalryStatsFilter filter) {
         StringBuilder where = new StringBuilder(" WHERE 1 = 1");
-        if (hasText(filter.seasonId())) { where.append(" AND pr.season_id = :seasonId"); params.addValue("seasonId", filter.seasonId().trim()); }
+        appendInFilter(where, params, "pr.season_id", "seasonIds", filter.seasonIds());
         if (filter.matchType() != null) { where.append(" AND pr.match_type = :matchType"); params.addValue("matchType", filter.matchType().name()); }
-        if (hasText(filter.teamId())) { where.append(" AND bpm.team_represented_id = :teamId"); params.addValue("teamId", filter.teamId().trim()); }
-        if (hasText(filter.opponentTeamId())) { where.append(" AND bpm.opposition_team_id = :opponentTeamId"); params.addValue("opponentTeamId", filter.opponentTeamId().trim()); }
-        if (filter.inningsNumber() != null) { where.append(" AND pr.innings_number = :inningsNumber"); params.addValue("inningsNumber", filter.inningsNumber()); }
+        appendInFilter(where, params, "bpm.team_represented_id", "teamIds", filter.teamIds());
+        appendInFilter(where, params, "bpm.opposition_team_id", "opponentTeamIds", filter.opponentTeamIds());
+        appendInFilter(where, params, "pr.innings_number", "inningsNumbers", filter.inningsNumbers());
         if (hasText(filter.batsmanId())) { where.append(" AND pr.batsman_id = :batsmanId"); params.addValue("batsmanId", filter.batsmanId().trim()); }
         if (hasText(filter.bowlerId())) { where.append(" AND pr.bowler_id = :bowlerId"); params.addValue("bowlerId", filter.bowlerId().trim()); }
-        if (filter.matchResult() != null) {
-            where.append(switch (filter.matchResult()) {
-                case WIN -> " AND bpm.match_won = TRUE";
-                case LOSS -> " AND bpm.match_won = FALSE AND COALESCE(m.is_match_tied, FALSE) = FALSE AND COALESCE(m.is_match_drawn, FALSE) = FALSE AND m.winner_team_id IS NOT NULL";
-                case TIE -> " AND COALESCE(m.is_match_tied, FALSE) = TRUE";
-                case NO_RESULT -> " AND (COALESCE(m.is_match_drawn, FALSE) = TRUE OR (m.winner_team_id IS NULL AND COALESCE(m.is_match_tied, FALSE) = FALSE))";
-            });
-        }
+        where.append(resultCondition(filter.matchResults(), "bpm.match_won", "m"));
         return where.toString();
     }
 
@@ -677,65 +663,63 @@ public class StatsReadRepository {
     }
 
     private String participationCountExpression(
-            String seasonId, MatchType matchType, String teamId, String opponentTeamId, MatchResult result,
+            List<String> seasonIds, MatchType matchType, List<String> teamIds,
+            List<String> opponentTeamIds, List<MatchResult> results,
             String playerReference
     ) {
         StringBuilder sql = new StringBuilder("(SELECT COUNT(DISTINCT mpp.match_id) FROM match_player_participation mpp JOIN matches mpp_m ON mpp_m.id = mpp.match_id WHERE mpp.player_id = ")
                 .append(playerReference);
-        if (hasText(seasonId)) sql.append(" AND mpp.season_id = :seasonId");
+        if (hasValues(seasonIds)) sql.append(" AND mpp.season_id IN (:seasonIds)");
         if (matchType != null) sql.append(" AND mpp.match_type = :matchType");
-        if (hasText(teamId)) sql.append(" AND mpp.team_represented_id = :teamId");
-        if (hasText(opponentTeamId)) sql.append(" AND mpp.opposition_team_id = :opponentTeamId");
-        if (result != null) {
-            sql.append(switch (result) {
-                case WIN -> " AND mpp.match_won = TRUE AND COALESCE(mpp_m.is_match_tied, FALSE) = FALSE AND COALESCE(mpp_m.is_match_drawn, FALSE) = FALSE";
-                case LOSS -> " AND mpp.match_won = FALSE AND COALESCE(mpp_m.is_match_tied, FALSE) = FALSE AND COALESCE(mpp_m.is_match_drawn, FALSE) = FALSE AND mpp_m.winner_team_id IS NOT NULL";
-                case TIE -> " AND COALESCE(mpp_m.is_match_tied, FALSE) = TRUE";
-                case NO_RESULT -> " AND (COALESCE(mpp_m.is_match_drawn, FALSE) = TRUE OR (mpp_m.winner_team_id IS NULL AND COALESCE(mpp_m.is_match_tied, FALSE) = FALSE))";
-            });
-        }
+        if (hasValues(teamIds)) sql.append(" AND mpp.team_represented_id IN (:teamIds)");
+        if (hasValues(opponentTeamIds)) sql.append(" AND mpp.opposition_team_id IN (:opponentTeamIds)");
+        sql.append(resultCondition(results, "mpp.match_won", "mpp_m"));
         return sql.append(")").toString();
     }
 
     private String commonWhere(
             MapSqlParameterSource params,
-            String seasonId,
+            List<String> seasonIds,
             MatchType matchType,
-            String teamId,
-            String opponentTeamId,
-            Integer inningsNumber,
-            MatchResult result
+            List<String> teamIds,
+            List<String> opponentTeamIds,
+            List<Integer> inningsNumbers,
+            List<MatchResult> results
     ) {
         StringBuilder where = new StringBuilder();
-        if (hasText(seasonId)) {
-            where.append(" AND pm.season_id = :seasonId");
-            params.addValue("seasonId", seasonId.trim());
-        }
+        appendInFilter(where, params, "pm.season_id", "seasonIds", seasonIds);
         if (matchType != null) {
             where.append(" AND pm.match_type = :matchType");
             params.addValue("matchType", matchType.name());
         }
-        if (hasText(teamId)) {
-            where.append(" AND pm.team_represented_id = :teamId");
-            params.addValue("teamId", teamId.trim());
-        }
-        if (hasText(opponentTeamId)) {
-            where.append(" AND pm.opposition_team_id = :opponentTeamId");
-            params.addValue("opponentTeamId", opponentTeamId.trim());
-        }
-        if (inningsNumber != null) {
-            where.append(" AND pm.innings_number = :inningsNumber");
-            params.addValue("inningsNumber", inningsNumber);
-        }
-        if (result != null) {
-            where.append(switch (result) {
-                case WIN -> " AND pm.match_won = TRUE AND COALESCE(m.is_match_tied, FALSE) = FALSE AND COALESCE(m.is_match_drawn, FALSE) = FALSE";
-                case LOSS -> " AND pm.match_won = FALSE AND COALESCE(m.is_match_tied, FALSE) = FALSE AND COALESCE(m.is_match_drawn, FALSE) = FALSE AND m.winner_team_id IS NOT NULL";
-                case TIE -> " AND COALESCE(m.is_match_tied, FALSE) = TRUE";
-                case NO_RESULT -> " AND (COALESCE(m.is_match_drawn, FALSE) = TRUE OR (m.winner_team_id IS NULL AND COALESCE(m.is_match_tied, FALSE) = FALSE))";
-            });
-        }
+        appendInFilter(where, params, "pm.team_represented_id", "teamIds", teamIds);
+        appendInFilter(where, params, "pm.opposition_team_id", "opponentTeamIds", opponentTeamIds);
+        appendInFilter(where, params, "pm.innings_number", "inningsNumbers", inningsNumbers);
+        where.append(resultCondition(results, "pm.match_won", "m"));
         return where.toString();
+    }
+
+    private void appendInFilter(
+            StringBuilder sql,
+            MapSqlParameterSource params,
+            String column,
+            String parameter,
+            List<?> values
+    ) {
+        if (!hasValues(values)) return;
+        sql.append(" AND ").append(column).append(" IN (:").append(parameter).append(")");
+        params.addValue(parameter, values);
+    }
+
+    private String resultCondition(List<MatchResult> results, String wonColumn, String matchAlias) {
+        if (!hasValues(results)) return "";
+        List<String> conditions = results.stream().distinct().map(result -> switch (result) {
+            case WIN -> "(" + wonColumn + " = TRUE AND COALESCE(" + matchAlias + ".is_match_tied, FALSE) = FALSE AND COALESCE(" + matchAlias + ".is_match_drawn, FALSE) = FALSE)";
+            case LOSS -> "(" + wonColumn + " = FALSE AND COALESCE(" + matchAlias + ".is_match_tied, FALSE) = FALSE AND COALESCE(" + matchAlias + ".is_match_drawn, FALSE) = FALSE AND " + matchAlias + ".winner_team_id IS NOT NULL)";
+            case TIE -> "(COALESCE(" + matchAlias + ".is_match_tied, FALSE) = TRUE)";
+            case NO_RESULT -> "(COALESCE(" + matchAlias + ".is_match_drawn, FALSE) = TRUE OR (" + matchAlias + ".winner_team_id IS NULL AND COALESCE(" + matchAlias + ".is_match_tied, FALSE) = FALSE))";
+        }).toList();
+        return conditions.isEmpty() ? "" : " AND (" + String.join(" OR ", conditions) + ")";
     }
 
     private int safeLimit(Integer limit) {
@@ -757,5 +741,9 @@ public class StatsReadRepository {
 
     private static boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private static boolean hasValues(List<?> values) {
+        return values != null && !values.isEmpty();
     }
 }

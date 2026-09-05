@@ -90,11 +90,11 @@ public class PlayerStatsService {
                 .orElseThrow(() -> new ResourceNotFoundException("Player not found: " + player2Id));
 
         RivalryStatsResponse player1Batting = firstOrNull(statsReadRepository.findRivalryStats(
-                new RivalryStatsFilter(seasonId, null, null, null, null, null, player1Id, player2Id, null, null, null), 1));
+                new RivalryStatsFilter(singleton(seasonId), null, null, null, null, null, player1Id, player2Id, null, null, null), 1));
         RivalryStatsResponse player2Batting = firstOrNull(statsReadRepository.findRivalryStats(
-                new RivalryStatsFilter(seasonId, null, null, null, null, null, player2Id, player1Id, null, null, null), 1));
+                new RivalryStatsFilter(singleton(seasonId), null, null, null, null, null, player2Id, player1Id, null, null, null), 1));
         PartnershipStatsResponse partnership = firstOrNull(statsReadRepository.findPartnershipAggregatedStats(
-                new PartnershipStatsFilter(seasonId, null, null, null, null, null, null, player1Id, player2Id, null), 1));
+                new PartnershipStatsFilter(singleton(seasonId), null, null, null, null, null, null, player1Id, player2Id, null), 1));
 
         return new PlayerVsPlayerDto(
                 seasonId, player1Id, player1.getName(), player2Id, player2.getName(),
@@ -108,7 +108,7 @@ public class PlayerStatsService {
 
     public PlayerComparisonDto comparePlayers(String player1Id, String player2Id, String seasonId) {
         return comparePlayers(player1Id, player2Id, new PlayerComparisonFilter(
-                seasonId, null, null, null, null,
+                singleton(seasonId), null, null, null, null,
                 null, null, null,
                 null, null
         ));
@@ -116,7 +116,7 @@ public class PlayerStatsService {
 
     public PlayerComparisonDto comparePlayers(String player1Id, String player2Id, String seasonId, MatchType matchType) {
         return comparePlayers(player1Id, player2Id, new PlayerComparisonFilter(
-                seasonId, matchType, null, null, null,
+                singleton(seasonId), matchType, null, null, null,
                 null, null, null,
                 null, null
         ));
@@ -132,15 +132,14 @@ public class PlayerStatsService {
                 : filter;
 
         return new PlayerComparisonDto(
-                safeFilter.seasonId(),
+                singleValue(safeFilter.seasonIds()),
                 comparisonSide(player1Id, safeFilter),
                 comparisonSide(player2Id, safeFilter)
         );
     }
 
     private PlayerComparisonSideDto comparisonSide(String playerId, PlayerComparisonFilter filter) {
-        List<PlayerStatReadRow> allRows = playerProfileReadRepository.findRows(
-                playerId, filter.seasonId(), filter.matchType());
+        List<PlayerStatReadRow> allRows = playerProfileReadRepository.findRows(playerId, filter);
         String playerName = allRows.isEmpty()
                 ? playerRepository.findById(playerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Player not found: " + playerId))
@@ -148,25 +147,22 @@ public class PlayerStatsService {
                 : allRows.getFirst().playerName();
 
         List<PlayerStatReadRow> commonRows = allRows.stream()
-                .filter(row -> blank(filter.teamId()) || Objects.equals(row.teamId(), filter.teamId()))
-                .filter(row -> blank(filter.opponentTeamId()) || Objects.equals(row.opponentTeamId(), filter.opponentTeamId()))
-                .filter(row -> filter.result() == null || resultOf(row) == filter.result())
+                .filter(row -> matches(filter.teamIds(), row.teamId()))
+                .filter(row -> matches(filter.opponentTeamIds(), row.opponentTeamId()))
+                .filter(row -> matches(filter.results(), resultOf(row)))
                 .toList();
 
         List<PlayerStatReadRow> battingRows = commonRows.stream()
                 .filter(PlayerStatReadRow::batted)
-                .filter(row -> filter.battingInningsNumber() == null
-                        || Objects.equals(row.inningsNumber(), filter.battingInningsNumber()))
-                .filter(row -> filter.battingPosition() == null
-                        || Objects.equals(row.battingPosition(), filter.battingPosition()))
+                .filter(row -> matches(filter.battingInningsNumbers(), row.inningsNumber()))
+                .filter(row -> matches(filter.battingPositions(), row.battingPosition()))
                 .filter(row -> filter.minBallsFaced() == null
                         || row.ballsFaced() >= filter.minBallsFaced())
                 .toList();
 
         List<PlayerStatReadRow> bowlingRows = commonRows.stream()
                 .filter(PlayerStatReadRow::bowled)
-                .filter(row -> filter.bowlingInningsNumber() == null
-                        || Objects.equals(row.inningsNumber(), filter.bowlingInningsNumber()))
+                .filter(row -> matches(filter.bowlingInningsNumbers(), row.inningsNumber()))
                 .filter(row -> filter.minOversBowled() == null
                         || row.ballsBowled() >= filter.minOversBowled() * 6)
                 .toList();
@@ -196,8 +192,16 @@ public class PlayerStatsService {
         );
     }
 
-    private boolean blank(String value) {
-        return value == null || value.isBlank();
+    private static <T> boolean matches(List<T> values, T value) {
+        return values == null || values.isEmpty() || values.contains(value);
+    }
+
+    private static List<String> singleton(String value) {
+        return value == null || value.isBlank() ? null : List.of(value.trim());
+    }
+
+    private static String singleValue(List<String> values) {
+        return values != null && values.size() == 1 ? values.getFirst() : null;
     }
 
     public PlayerProfileDto getPlayerProfile(String playerId, String seasonId) {

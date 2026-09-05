@@ -185,7 +185,7 @@ class MatchServiceTest {
     private InningsDto innings(String batting, String bowling, int runs, int wickets, int balls) {
         return new InningsDto(
                 batting, bowling, 1, runs, wickets, balls,
-                Map.of(), Map.of(), new ExtrasDto(0, 0), Map.of(), List.of(), false, false, true, null
+                Map.of(), Map.of(), new ExtrasDto(0, 0, 0), Map.of(), List.of(), false, false, true, null
         );
     }
 

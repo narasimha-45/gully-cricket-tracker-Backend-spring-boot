@@ -3,18 +3,20 @@ package com.gullycricket.backend.stats.dto;
 import com.gullycricket.backend.matches.entity.MatchType;
 import com.gullycricket.backend.stats.enums.MatchResult;
 
-public record PlayerComparisonFilter(
-        String seasonId,
-        MatchType matchType,
-        String teamId,
-        String opponentTeamId,
-        MatchResult result,
+import java.util.List;
 
-        Integer battingInningsNumber,
-        Integer battingPosition,
+public record PlayerComparisonFilter(
+        List<String> seasonIds,
+        MatchType matchType,
+        List<String> teamIds,
+        List<String> opponentTeamIds,
+        List<MatchResult> results,
+
+        List<Integer> battingInningsNumbers,
+        List<Integer> battingPositions,
         Integer minBallsFaced,
 
-        Integer bowlingInningsNumber,
+        List<Integer> bowlingInningsNumbers,
         Integer minOversBowled
 ) {
 }
