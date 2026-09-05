@@ -155,6 +155,93 @@ public class MatchSummaryReadRepository {
         return queryTimer.record("matches.completed", () -> jdbc.query(sql.toString(), params, this::mapRow));
     }
 
+    /**
+     * Aggregated limited-overs inputs used for Net Run Rate. Super overs and
+     * no-result matches are excluded. An innings ending ALL_OUT is charged the
+     * full scheduled quota, while other innings use the actual legal balls.
+     */
+    public List<TeamNrrRow> findTeamNrr(String seasonId) {
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("completed", MatchStatus.COMPLETED.name())
+                .addValue("oversMatchType", MatchType.OVERS.name());
+
+        StringBuilder sql = new StringBuilder("""
+                WITH nrr_innings AS (
+                    SELECT
+                        mis.batting_team_id,
+                        mis.bowling_team_id,
+                        mis.runs,
+                        CASE
+                            WHEN UPPER(COALESCE(mis.completion_reason, '')) = 'ALL_OUT'
+                                 AND m.total_overs IS NOT NULL
+                                THEN GREATEST(mis.balls, m.total_overs * 6)
+                            ELSE mis.balls
+                        END AS effective_balls
+                    FROM match_innings_summary mis
+                    JOIN matches m ON m.id = mis.match_id
+                    WHERE m.status = :completed
+                      AND m.match_type = :oversMatchType
+                      AND mis.super_over = FALSE
+                      AND (m.winner_team_id IS NOT NULL OR COALESCE(m.is_match_tied, FALSE) = TRUE)
+                """);
+
+        if (seasonId != null && !seasonId.isBlank()) {
+            sql.append(" AND m.season_id = :seasonId");
+            params.addValue("seasonId", seasonId.trim());
+        }
+
+        sql.append("""
+                ), team_nrr AS (
+                    SELECT
+                        batting_team_id AS team_id,
+                        runs AS runs_scored,
+                        effective_balls AS balls_faced,
+                        0 AS runs_conceded,
+                        0 AS balls_bowled
+                    FROM nrr_innings
+
+                    UNION ALL
+
+                    SELECT
+                        bowling_team_id AS team_id,
+                        0 AS runs_scored,
+                        0 AS balls_faced,
+                        runs AS runs_conceded,
+                        effective_balls AS balls_bowled
+                    FROM nrr_innings
+                )
+                SELECT
+                    team_id,
+                    SUM(runs_scored) AS runs_scored,
+                    SUM(balls_faced) AS balls_faced,
+                    SUM(runs_conceded) AS runs_conceded,
+                    SUM(balls_bowled) AS balls_bowled
+                FROM team_nrr
+                GROUP BY team_id
+                """);
+
+        return queryTimer.record("matches.teamNrr", () -> jdbc.query(
+                sql.toString(),
+                params,
+                (rs, rowNum) -> new TeamNrrRow(
+                        rs.getString("team_id"),
+                        rs.getLong("runs_scored"),
+                        rs.getLong("balls_faced"),
+                        rs.getLong("runs_conceded"),
+                        rs.getLong("balls_bowled")
+                )
+        ));
+    }
+
+    public record TeamNrrRow(
+            String teamId,
+            long runsScored,
+            long ballsFaced,
+            long runsConceded,
+            long ballsBowled
+    ) {
+    }
+
     private MatchSummaryRow mapRow(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {
         return new MatchSummaryRow(
                 rs.getString("match_id"),

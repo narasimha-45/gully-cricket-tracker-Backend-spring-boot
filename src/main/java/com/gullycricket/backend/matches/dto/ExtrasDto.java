@@ -2,5 +2,6 @@ package com.gullycricket.backend.matches.dto;
 
 public record ExtrasDto(
         int wides,
-        int noBalls
+        int noBalls,
+        int byes
 ) {}

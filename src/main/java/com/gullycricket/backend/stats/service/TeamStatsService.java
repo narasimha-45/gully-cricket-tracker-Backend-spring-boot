@@ -88,6 +88,14 @@ public class TeamStatsService {
             teamNames.put(match.teamBId(), match.teamBName());
         }
 
+        // NRR is meaningful only for limited-overs cricket. If matchType is not
+        // supplied, the leaderboard can still contain all match types, but NRR
+        // is calculated only from completed OVERS matches.
+        Map<String, MatchSummaryReadRepository.TeamNrrRow> nrrByTeamId = matchType == MatchType.TEST
+                ? Map.of()
+                : matchSummaryReadRepository.findTeamNrr(seasonId).stream()
+                .collect(Collectors.toMap(MatchSummaryReadRepository.TeamNrrRow::teamId, row -> row));
+
         List<TeamLeaderboardEntryDto> entries = matchesByTeamId.entrySet().stream()
                 .map(entry -> {
                     String teamId = entry.getKey();
@@ -95,9 +103,17 @@ public class TeamStatsService {
                             .map(row -> toNotableMatch(row, teamId))
                             .toList();
                     TeamRecord record = computeRecord(notable);
+
+                    Double netRunRate = null;
+                    if (matchType != MatchType.TEST) {
+                        MatchSummaryReadRepository.TeamNrrRow nrr = nrrByTeamId.get(teamId);
+                        netRunRate = nrr == null ? 0.0 : calculateNetRunRate(nrr);
+                    }
+
                     return new TeamLeaderboardEntryDto(
                             teamId, teamNames.get(teamId),
                             record.matchesPlayed, record.wins, record.losses, record.ties, record.noResults, record.winPercentage(),
+                            netRunRate,
                             record.wonBattingFirst, record.wonChasing,
                             record.highestScore != null ? record.highestScore.teamScore() : null,
                             record.lowestDefended != null ? record.lowestDefended.teamScore() : null,
@@ -110,6 +126,16 @@ public class TeamStatsService {
         entries.sort(teamComparator(sortBy));
         int safeLimit = limit == null ? 50 : Math.max(1, Math.min(limit, 100));
         return entries.stream().limit(safeLimit).toList();
+    }
+
+    private double calculateNetRunRate(MatchSummaryReadRepository.TeamNrrRow nrr) {
+        if (nrr.ballsFaced() == 0 || nrr.ballsBowled() == 0) {
+            return 0.0;
+        }
+
+        double scoringRate = nrr.runsScored() * 6.0 / nrr.ballsFaced();
+        double concedingRate = nrr.runsConceded() * 6.0 / nrr.ballsBowled();
+        return round3(scoringRate - concedingRate);
     }
 
     private TeamSeasonStatsDto computeSeasonStats(List<NotableMatchDto> seasonMatches) {
@@ -209,6 +235,10 @@ public class TeamStatsService {
 
     private static double round2(double value) {
         return Math.round(value * 100.0) / 100.0;
+    }
+
+    private static double round3(double value) {
+        return Math.round(value * 1000.0) / 1000.0;
     }
 
     private static class TeamRecord {
