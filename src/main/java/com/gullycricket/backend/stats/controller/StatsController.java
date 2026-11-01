@@ -35,6 +35,21 @@ public class StatsController {
         return ResponseEntity.ok(playerStatsService.getPlayerProfile(playerId, seasonId, matchType));
     }
 
+    @GetMapping("/leaderboard/batting-runouts")
+    public ResponseEntity<List<RunOutLeaderboardRowDto>> getRunOutLeaderboard(
+            @RequestParam(name = "seasonId", required = false) List<String> seasonIds,
+            @RequestParam(required = false) MatchType matchType) {
+        return ResponseEntity.ok(playerStatsService.getRunOutLeaderboard(seasonIds, matchType));
+    }
+
+    @GetMapping("/player/{playerId}/batting-runouts")
+    public ResponseEntity<BattingRunOutStatsDto> getBattingRunOutStats(
+            @PathVariable String playerId,
+            @RequestParam(required = false) String seasonId,
+            @RequestParam(required = false) MatchType matchType) {
+        return ResponseEntity.ok(playerStatsService.getBattingRunOutStats(playerId, seasonId, matchType));
+    }
+
     @GetMapping("/player/compare")
     public ResponseEntity<PlayerComparisonDto> comparePlayers(
             @RequestParam String player1Id,

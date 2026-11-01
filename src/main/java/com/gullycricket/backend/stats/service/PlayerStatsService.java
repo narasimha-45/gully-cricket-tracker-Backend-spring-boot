@@ -58,6 +58,15 @@ public class PlayerStatsService {
         return statsReadRepository.findFieldingLeaderboard(filter, sortBy, limit);
     }
 
+    public List<RunOutLeaderboardRowDto> getRunOutLeaderboard(List<String> seasonIds, MatchType matchType) {
+        return statsReadRepository.findRunOutLeaderboard(seasonIds, matchType);
+    }
+
+    public BattingRunOutStatsDto getBattingRunOutStats(String playerId, String seasonId, MatchType matchType) {
+        if (!playerRepository.existsById(playerId)) throw new ResourceNotFoundException("Player not found: " + playerId);
+        return statsReadRepository.findBattingRunOutStats(playerId, seasonId, matchType);
+    }
+
     public List<PartnershipInningsDto> getPartnershipInnings(PartnershipStatsFilter filter, Integer limit) {
         return statsReadRepository.findPartnershipInnings(filter, limit);
     }

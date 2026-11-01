@@ -206,6 +206,82 @@ public class StatsReadRepository {
      * Ordered by runs descending so this endpoint can directly power the "highest partnerships
      * in an innings" leaderboard.
      */
+    /** All batting pairs, for global and season run-out leaderboards. No N+1 player queries. */
+    public List<com.gullycricket.backend.stats.dto.RunOutLeaderboardRowDto> findRunOutLeaderboard(
+            List<String> seasonIds, MatchType matchType) {
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("matchType", matchType == null ? null : matchType.name())
+                .addValue("seasonIds", seasonIds == null || seasonIds.isEmpty() ? null : seasonIds);
+        String seasonPredicate = seasonIds == null || seasonIds.isEmpty() ? "" : " AND pp.season_id IN (:seasonIds)";
+        // Normalize pair ordering: the same two batters may be recorded in either slot.
+        String sql = """
+                SELECT LEAST(pp.player1_id, pp.player2_id) AS player1_id,
+                       MIN(CASE WHEN pp.player1_id < pp.player2_id THEN p1.name ELSE p2.name END) AS player1_name,
+                       GREATEST(pp.player1_id, pp.player2_id) AS player2_id,
+                       MIN(CASE WHEN pp.player1_id < pp.player2_id THEN p2.name ELSE p1.name END) AS player2_name,
+                       COUNT(*) AS partnerships,
+                       COUNT(*) FILTER (WHERE pp.run_out IS TRUE) AS run_outs,
+                       COUNT(*) FILTER (WHERE pp.run_out IS TRUE AND pp.who_got_out_id = LEAST(pp.player1_id, pp.player2_id)) AS player1_out,
+                       COUNT(*) FILTER (WHERE pp.run_out IS TRUE AND pp.who_got_out_id = GREATEST(pp.player1_id, pp.player2_id)) AS player2_out,
+                       COUNT(*) FILTER (WHERE pp.run_out IS NULL) AS unknown_partnerships
+                  FROM player_partnerships pp
+                  JOIN players p1 ON p1.id = pp.player1_id
+                  JOIN players p2 ON p2.id = pp.player2_id
+                 WHERE (:matchType IS NULL OR pp.match_type = :matchType)
+                """ + seasonPredicate + """
+                 GROUP BY LEAST(pp.player1_id, pp.player2_id), GREATEST(pp.player1_id, pp.player2_id)
+                 ORDER BY run_outs DESC, partnerships DESC
+                """;
+        return jdbc.query(sql, params, (rs, i) -> {
+            int partnerships = rs.getInt("partnerships");
+            int unknown = rs.getInt("unknown_partnerships");
+            int runOuts = rs.getInt("run_outs");
+            int known = partnerships - unknown;
+            return new com.gullycricket.backend.stats.dto.RunOutLeaderboardRowDto(
+                    rs.getString("player1_id"), rs.getString("player1_name"),
+                    rs.getString("player2_id"), rs.getString("player2_name"),
+                    partnerships, runOuts, rs.getInt("player1_out"), rs.getInt("player2_out"),
+                    unknown, known == 0 ? null : Math.round(10000.0 * runOuts / known) / 100.0);
+        });
+    }
+
+    /** Player-oriented run-outs; each partnership-ending run-out counts once for both batters. */
+    public com.gullycricket.backend.stats.dto.BattingRunOutStatsDto findBattingRunOutStats(
+            String playerId, String seasonId, MatchType matchType) {
+        MapSqlParameterSource params = new MapSqlParameterSource().addValue("playerId", playerId)
+                .addValue("seasonId", seasonId).addValue("matchType", matchType == null ? null : matchType.name());
+        String sql = """
+                SELECT CASE WHEN pp.player1_id = :playerId THEN pp.player2_id ELSE pp.player1_id END partner_id,
+                       p.name partner_name, COUNT(*) partnerships,
+                       COUNT(*) FILTER (WHERE pp.run_out IS TRUE) run_outs,
+                       COUNT(*) FILTER (WHERE pp.run_out IS TRUE AND pp.who_got_out_id = :playerId) player_out,
+                       COUNT(*) FILTER (WHERE pp.run_out IS TRUE AND pp.who_got_out_id <> :playerId) partner_out,
+                       COUNT(*) FILTER (WHERE pp.run_out IS NULL) unknown_partnerships
+                FROM player_partnerships pp
+                JOIN players p ON p.id = CASE WHEN pp.player1_id = :playerId THEN pp.player2_id ELSE pp.player1_id END
+                WHERE (pp.player1_id = :playerId OR pp.player2_id = :playerId)
+                  AND (:seasonId IS NULL OR pp.season_id = :seasonId)
+                  AND (:matchType IS NULL OR pp.match_type = :matchType)
+                GROUP BY partner_id, p.name
+                ORDER BY run_outs DESC, partnerships DESC, partner_name ASC
+                """;
+        List<com.gullycricket.backend.stats.dto.BattingRunOutStatsDto.Partner> partners = jdbc.query(sql, params, (rs, i) -> {
+            int count = rs.getInt("partnerships");
+            int unknown = rs.getInt("unknown_partnerships");
+            int known = count - unknown;
+            int runOuts = rs.getInt("run_outs");
+            return new com.gullycricket.backend.stats.dto.BattingRunOutStatsDto.Partner(
+                    rs.getString("partner_id"), rs.getString("partner_name"), count, runOuts,
+                    rs.getInt("player_out"), rs.getInt("partner_out"), unknown,
+                    known == 0 ? null : Math.round(10000.0 * runOuts / known) / 100.0);
+        });
+        return new com.gullycricket.backend.stats.dto.BattingRunOutStatsDto(
+                playerId, partners.stream().mapToInt(x -> x.runOuts()).sum(),
+                partners.stream().mapToInt(x -> x.playerOut()).sum(),
+                partners.stream().mapToInt(x -> x.partnerOut()).sum(),
+                partners.stream().mapToInt(x -> x.unknownPartnerships()).sum(), partners);
+    }
+
     public List<PartnershipInningsDto> findPartnershipInnings(PartnershipStatsFilter filter, Integer limit) {
         MapSqlParameterSource params = new MapSqlParameterSource();
         String where = partnershipWhere(params, filter);

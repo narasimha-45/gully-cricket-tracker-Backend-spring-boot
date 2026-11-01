@@ -86,6 +86,10 @@
         @JoinColumn(name = "who_got_out_id")
         private Player whoGotOut;
 
+        // Null means historical dismissal type is not known.
+        @Column(name = "run_out")
+        private Boolean runOut;
+
         @Column(name = "player1_runs", nullable = false)
         private Integer player1Runs = 0;
 
