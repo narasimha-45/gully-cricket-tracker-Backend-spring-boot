@@ -433,6 +433,7 @@ public class ProcessPlayerStatsService {
                     Player outBatsman = player(ctx, ball.wicket().outBatsman());
                     partnership.setPartnershipBroken(true);
                     partnership.setWhoGotOut(outBatsman);
+                    partnership.setRunOut(parseDismissalType(ball.wicket().type()) == DismissalType.RUN_OUT);
 
                     if (Objects.equals(outBatsman, striker)) {
                         rivalry.setBatsmanDismissed(true);
